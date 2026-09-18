@@ -9,7 +9,7 @@ export async function GET() {
     const { data, error } = await sb
       .from("wrong_answers")
       .select(
-        "id,question_id,wrong_count,last_wrong_at,mastered,next_review_at,ease_factor, questions(*, knowledge_points(content, sections(name, chapters(name, subjects(name))))"
+        "id,question_id,wrong_count,last_wrong_at,mastered,next_review_at,ease_factor, questions(*, knowledge_points(content, sections(name, chapters(name, subjects(name))))))"
       )
       .order("wrong_count", { ascending: false });
     if (error) throw error;

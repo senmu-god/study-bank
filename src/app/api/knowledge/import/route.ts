@@ -5,7 +5,6 @@ import type { ParsedImportItem } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: ParsedImportItem[]) {
-  // 收集所有 (subject, chapter, section) 三元组
   const triples = new Set<string>();
   for (const it of items) {
     if (!it.subject || !it.chapter || !it.section || !it.content) continue;
@@ -13,40 +12,44 @@ async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: P
   }
 
   const subjectNames = [...new Set([...triples].map((t) => t.split("||")[0]))];
-  const chapterNames = [...new Set([...triples].map((t) => t.split("||").slice(0, 2).join("||")))];
-  const sectionNames = [...triples];
+  const triplesArr = [...triples];
 
   // 科目
-  const { data: existingSubjects } = await sb.from("subjects").select("id,name");
+  const { data: existingSubjects, error: subjErr } = await sb.from("subjects").select("id,name");
+  if (subjErr) throw subjErr;
   const subjectMap = new Map<string, string>((existingSubjects || []).map((s) => [s.name, s.id]));
   const missingSubjects = subjectNames.filter((n) => !subjectMap.has(n));
   if (missingSubjects.length > 0) {
-    const { data: inserted } = await sb
+    const { data: inserted, error: insErr } = await sb
       .from("subjects")
       .insert(missingSubjects.map((name) => ({ name })))
       .select("id,name");
+    if (insErr) throw insErr;
     for (const row of inserted || []) subjectMap.set(row.name, row.id);
   }
 
   // 章节
-  const { data: existingChapters } = await sb
+  const { data: existingChapters, error: chSelErr } = await sb
     .from("chapters")
     .select("id,name,subject_id");
+  if (chSelErr) throw chSelErr;
   const chapterMap = new Map<string, string>(
     (existingChapters || []).map((c) => [`${c.name}||${c.subject_id}`, c.id])
   );
   const chaptersToInsert: { name: string; subject_id: string }[] = [];
-  for (const key of chapterNames) {
-    const [chName, subjName] = key.split("||");
-    if (!chapterMap.has(`${chName}||${subjectMap.get(subjName)}`)) {
-      chaptersToInsert.push({ name: chName, subject_id: subjectMap.get(subjName)! });
-    }
+  for (const tripleKey of triplesArr) {
+    const [subjName, chName] = tripleKey.split("||");
+    const subjId = subjectMap.get(subjName);
+    if (!subjId) continue;
+    const chKey = `${chName}||${subjId}`;
+    if (!chapterMap.has(chKey)) chaptersToInsert.push({ name: chName, subject_id: subjId });
   }
   if (chaptersToInsert.length > 0) {
-    const { data: inserted } = await sb
+    const { data: inserted, error: chInsErr } = await sb
       .from("chapters")
       .insert(chaptersToInsert)
       .select("id,name,subject_id");
+    if (chInsErr) throw chInsErr;
     for (const row of inserted || []) chapterMap.set(`${row.name}||${row.subject_id}`, row.id);
   }
 
@@ -58,7 +61,7 @@ async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: P
     (existingSections || []).map((s) => [`${s.name}||${s.chapter_id}`, s.id])
   );
   const sectionsToInsert: { name: string; chapter_id: string }[] = [];
-  for (const tripleKey of sectionNames) {
+  for (const tripleKey of triplesArr) {
     const [subjName, chName, secName] = tripleKey.split("||");
     const chapterId = chapterMap.get(`${chName}||${subjectMap.get(subjName)}`);
     if (!chapterId) continue;
@@ -89,9 +92,9 @@ export async function POST(req: Request) {
     const rows = items
       .filter((it) => it.subject && it.chapter && it.section && it.content)
       .map((it) => {
-        const sectionId = sectionMap.get(
-          `${it.section}||${chapterMap.get(`${it.chapter}||${subjectMap.get(it.subject)}`)}`
-        );
+        const sid = subjectMap.get(it.subject);
+        const cid = chapterMap.get(`${it.chapter}||${sid}`);
+        const sectionId = sectionMap.get(`${it.section}||${cid}`);
         return {
           section_id: sectionId,
           content: it.content,
@@ -101,8 +104,11 @@ export async function POST(req: Request) {
       })
       .filter((r) => r.section_id);
 
-    const { error } = await sb.from("knowledge_points").insert(rows);
-    if (error) throw error;
+    if (rows.length === 0) {
+      return NextResponse.json({ error: "无法匹配到任何小节，请检查层级结构", imported: 0 }, { status: 400 });
+    }
+    const ins = await sb.from("knowledge_points").insert(rows);
+    if (ins.error) throw ins.error;
 
     return NextResponse.json({ imported: rows.length });
   } catch (err) {

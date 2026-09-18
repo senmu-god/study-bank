@@ -16,8 +16,14 @@ export function getSupabaseAdmin(): SupabaseClient {
       "缺少环境变量 SUPABASE_URL 或 SUPABASE_SERVICE_ROLE_KEY，请在 .env.local 或 Vercel 中配置"
     );
   }
+  // Next.js 14 默认缓存 fetch GET，会导致 Supabase 查询拿到旧/空结果。
+  // 这里强制所有请求不缓存。
+  const noStoreFetch = (input: any, init?: any) =>
+    fetch(input, { ...(init || {}), cache: "no-store" as RequestCache });
+
   adminClient = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: noStoreFetch },
   });
   return adminClient;
 }

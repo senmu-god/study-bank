@@ -7,13 +7,15 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const sb = getSupabaseAdmin();
-    const { data: subjects } = await sb
+    const { data: subjects, error: subjErr } = await sb
       .from("subjects")
       .select("id,name,description,created_at")
       .order("created_at", { ascending: true });
+    if (subjErr) throw subjErr;
     const { data: chapters } = await sb.from("chapters").select("*").order("sort_order");
     const { data: sections } = await sb.from("sections").select("*").order("sort_order");
-    const { data: kps } = await sb.from("knowledge_points").select("*").order("created_at");
+    const { data: kps, error: kpErr } = await sb.from("knowledge_points").select("*").order("created_at");
+    if (kpErr) throw kpErr;
 
     const tree: SubjectNode[] = (subjects || []).map((s) => ({
       ...s,
