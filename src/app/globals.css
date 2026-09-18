@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 33% 98%;
+    --foreground: 20 14% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 14% 15%;
+    --primary: 174 72% 30%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 36 30% 94%;
+    --secondary-foreground: 20 14% 25%;
+    --muted: 36 20% 93%;
+    --muted-foreground: 25 8% 45%;
+    --accent: 42 90% 55%;
+    --accent-foreground: 20 14% 15%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 15% 88%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* 打印样式：用于导出 PDF（空卷 / 答案卷 / 解析卷） */
+@media print {
+  body {
+    background: #fff !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-area {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .print-page-break {
+    page-break-before: always;
+  }
+}
