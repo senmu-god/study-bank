@@ -167,6 +167,19 @@ function buildPrompt(params: {
   }
 
   return `${subjectPrompt}
+
+【命题工作流（四步闭环铁律）】
+输出前你必须在后台完成且校验通过：
+1. 设计基础数据：设定题干中的参数、场景、已知条件，符合近三年背景。
+2. 精确计算：用这些数据算出唯一、精确、可复现的答案（分数或指定小数位）。
+3. 基于答案生成干扰项：把精确答案设为正确选项，再围绕常见易错点（漏乘系数、加减号写反、公式记错）反推三个有迷惑性的错误选项。
+4. 撰写解析：严格复述第1层数据与第2层计算，得出与正确选项完全一致的结果。
+
+【绝对红线，违反即作废重出】
+1. 严禁自相矛盾：解析的计算必须与题干数据完全一致；不得出现"虽然题目写了t=8，但为了符合选项假设t=7"这类话。
+2. 严禁凑数选项：算出的答案必须精确出现在选项中（算出来是4.75，选项里就必须有4.75）；不得出现"4.75≈4.5故选A"。
+3. 严禁自我拉扯：解析必须自信、权威、严谨；不得出现"出题有误""不得已选""原题数据不合理""修改题目""勉强""稍微改"等字样；数据不合理就在后台换题重出，不要把废稿输出。
+
 5. 必须返回严格的 JSON 格式，不要包含 markdown 标记，不要用代码块包裹。
 返回 JSON 中 difficulty 必须是 easy/medium_easy/medium/hard 之一，difficulty_score 为 0.3/0.5/0.7/0.9 之一。
 必须返回的 JSON 格式如下：
@@ -213,8 +226,29 @@ function normalizeByType(q: GeneratedQuestion, type: QuestionType): GeneratedQue
 const STALE_PATTERN =
   /小明|小红|小刚|小李|Windows ?7|Windows ?XP|Office ?2003|Office ?2007|2010年以前|诺基亚|摩托罗拉|小灵通/i;
 
+/** 自相矛盾/凑数/自我拉扯字样：命中即判废重出。 */
+const SELF_DOUBT_PATTERN =
+  /出题有误|不得已|原题数据|修改题目|为了符合|勉强|稍微改|约等|≈|假设为了|我们假设/i;
+
 function isStale(q: GeneratedQuestion): boolean {
   return STALE_PATTERN.test(`${q.question_text} ${q.explanation}`);
+}
+
+/** 自检：解析不得出现凑数/自我拉扯字样；选择题正确答案必须存在于选项标签中。 */
+function passesConsistencyCheck(q: GeneratedQuestion, type: QuestionType): boolean {
+  if (SELF_DOUBT_PATTERN.test(`${q.question_text} ${q.explanation}`)) return false;
+  if (type === "single_choice" || type === "multiple_choice") {
+    const labels = (q.options || []).map((o) => o.label);
+    const ans = (q.correct_answer || "").trim();
+    if (type === "single_choice") {
+      if (!labels.includes(ans)) return false;
+    } else {
+      for (const ch of ans.replace(/\s+/g, "").split("")) {
+        if (!labels.includes(ch)) return false;
+      }
+    }
+  }
+  return true;
 }
 
 /** 归一难度并强制 difficulty_score 与 difficulty 一一对应。 */
@@ -262,6 +296,10 @@ export async function generateOneQuestion(params: {
       // 反陈旧校验：命中旧元素则视为不合格，触发重写
       if (isStale(parsed)) {
         throw new Error("题目含陈旧案例，需按近三年背景重写");
+      }
+      // 自洽性校验：解析不得凑数/自我拉扯，正确答案必须在选项中
+      if (!passesConsistencyCheck(parsed, params.questionType)) {
+        throw new Error("题目自洽性校验未通过（解析凑数或答案不在选项中），需重出");
       }
       return parsed;
     } catch (err) {
