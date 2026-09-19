@@ -10,6 +10,19 @@ import { QUESTION_TYPE_LABELS } from "@/lib/types";
 
 const TYPE_KEYS: QuestionType[] = ["single_choice", "multiple_choice", "fill_blank", "true_false", "short_answer"];
 
+function highlight(text: string, kw: string) {
+  if (!kw) return text;
+  const idx = text.toLowerCase().indexOf(kw.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-yellow-200">{text.slice(idx, idx + kw.length)}</mark>
+      {text.slice(idx + kw.length)}
+    </>
+  );
+}
+
 export default function CreatePaperPage() {
   const router = useRouter();
   const [tree, setTree] = useState<SubjectNode[]>([]);
@@ -23,20 +36,78 @@ export default function CreatePaperPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
+  // 过滤状态
+  const [subjectFilter, setSubjectFilter] = useState<Set<string>>(new Set());
+  const [kw, setKw] = useState("");
+  const [debouncedKw, setDebouncedKw] = useState("");
+
   useEffect(() => {
     fetch("/api/knowledge/tree").then((r) => r.json()).then((d) => setTree(d.tree || []));
   }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedKw(kw.trim()), 300);
+    return () => clearTimeout(t);
+  }, [kw]);
 
   function toggleKp(id: string) {
     const next = new Set(selected);
     if (next.has(id)) next.delete(id); else next.add(id);
     setSelected(next);
-    // 均匀分配
     const per = next.size > 0 ? Math.floor(100 / next.size) : 0;
     const p: Record<string, number> = {};
     next.forEach((k) => (p[k] = per));
     setPercent(p);
   }
+
+  function toggleAllKps(ids: string[], check: boolean) {
+    const next = new Set(selected);
+    for (const id of ids) check ? next.add(id) : next.delete(id);
+    setSelected(next);
+    const per = next.size > 0 ? Math.floor(100 / next.size) : 0;
+    const p: Record<string, number> = {};
+    next.forEach((k) => (p[k] = per));
+    setPercent(p);
+  }
+
+  // 双条件过滤
+  const filtered = useMemo(() => {
+    const kwLower = debouncedKw.toLowerCase();
+    return tree
+      .filter((s) => subjectFilter.size === 0 || subjectFilter.has(s.id))
+      .map((s) => {
+        const chapters = s.chapters
+          .map((c) => {
+            const sections = c.sections
+              .map((sec) => {
+                const kps = sec.kps.filter((kp) => {
+                  if (!kwLower) return true;
+                  return (
+                    kp.content.toLowerCase().includes(kwLower) ||
+                    sec.name.toLowerCase().includes(kwLower) ||
+                    c.name.toLowerCase().includes(kwLower) ||
+                    s.name.toLowerCase().includes(kwLower)
+                  );
+                });
+                if (kwLower && kps.length === 0 && !sec.name.toLowerCase().includes(kwLower)) return null;
+                return { ...sec, kps };
+              })
+              .filter(Boolean);
+            if (kwLower && sections.length === 0 && !c.name.toLowerCase().includes(kwLower)) return null;
+            return { ...c, sections: sections as NonNullable<typeof sections[number]>[] };
+          })
+          .filter(Boolean);
+        if (kwLower && chapters.length === 0 && !s.name.toLowerCase().includes(kwLower)) return null;
+        return { ...s, chapters: chapters as NonNullable<typeof chapters[number]>[] };
+      })
+      .filter(Boolean);
+  }, [tree, subjectFilter, debouncedKw]);
+
+  const visibleKpIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const s of filtered) for (const c of s.chapters) for (const sec of c.sections) for (const kp of sec.kps) ids.push(kp.id);
+    return ids;
+  }, [filtered]);
 
   const sum = Object.values(percent).reduce((a, b) => a + (b || 0), 0);
 
@@ -69,33 +140,73 @@ export default function CreatePaperPage() {
 
       <div className="grid gap-4 md:grid-cols-[1fr_320px]">
         <Card>
-          <CardHeader><CardTitle>选择知识点</CardTitle></CardHeader>
-          <CardContent className="max-h-[60vh] space-y-3 overflow-auto text-sm">
-            {tree.map((s) =>
-              s.chapters.map((c) =>
-                c.sections.map((sec) => (
-                  <div key={sec.id} className="ml-2">
-                    <div className="text-muted-foreground">{s.name} / {c.name} / {sec.name}</div>
-                    <div className="ml-4 space-y-1">
-                      {sec.kps.map((k) => (
-                        <label key={k.id} className="flex items-center gap-2">
-                          <input type="checkbox" checked={selected.has(k.id)} onChange={() => toggleKp(k.id)} />
-                          <span className="flex-1">{k.content}</span>
-                          {selected.has(k.id) && (
-                            <Input
-                              type="number"
-                              className="h-7 w-16 text-xs"
-                              value={percent[k.id] || 0}
-                              onChange={(e) => setPercent({ ...percent, [k.id]: Number(e.target.value) })}
-                            />
-                          )}
-                        </label>
-                      ))}
+          <CardHeader><CardTitle>选择知识点（已选 {selected.size} 个）</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {/* 科目 Tabs */}
+            <div className="flex flex-wrap gap-1">
+              {tree.map((s) => {
+                const active = subjectFilter.size === 0 || subjectFilter.has(s.id);
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => {
+                      const next = new Set(subjectFilter);
+                      if (active) next.add(s.id); else next.delete(s.id);
+                      setSubjectFilter(next);
+                    }}
+                    className={`rounded-full px-3 py-1 text-xs ${
+                      active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                );
+              })}
+              {subjectFilter.size > 0 && (
+                <button onClick={() => setSubjectFilter(new Set())} className="rounded-full bg-secondary px-3 py-1 text-xs text-muted-foreground">
+                  显示全部
+                </button>
+              )}
+            </div>
+
+            {/* 搜索 */}
+            <div className="flex gap-2">
+              <Input value={kw} onChange={(e) => setKw(e.target.value)} placeholder="搜索知识点关键词" className="flex-1" />
+              <Button size="sm" variant="outline" onClick={() => toggleAllKps(visibleKpIds, true)}>全选结果</Button>
+              <Button size="sm" variant="outline" onClick={() => toggleAllKps(visibleKpIds, false)}>清空结果</Button>
+            </div>
+
+            {/* 树形 */}
+            <div className="max-h-[50vh] space-y-3 overflow-auto text-sm">
+              {filtered.map((s) =>
+                s.chapters.map((c) =>
+                  c.sections.map((sec) => (
+                    <div key={sec.id} className="ml-2">
+                      <div className="text-muted-foreground">
+                        {highlight(s.name, debouncedKw)} / {highlight(c.name, debouncedKw)} / {highlight(sec.name, debouncedKw)}
+                      </div>
+                      <div className="ml-4 space-y-1">
+                        {sec.kps.map((k) => (
+                          <label key={k.id} className="flex items-center gap-2">
+                            <input type="checkbox" checked={selected.has(k.id)} onChange={() => toggleKp(k.id)} />
+                            <span className="flex-1">{highlight(k.content, debouncedKw)}</span>
+                            {selected.has(k.id) && (
+                              <Input
+                                type="number"
+                                className="h-7 w-16 text-xs"
+                                value={percent[k.id] || 0}
+                                onChange={(e) => setPercent({ ...percent, [k.id]: Number(e.target.value) })}
+                              />
+                            )}
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))
-              )
-            )}
+                  ))
+                )
+              )}
+              {filtered.length === 0 && <p className="text-xs text-muted-foreground">无匹配结果</p>}
+            </div>
           </CardContent>
         </Card>
 

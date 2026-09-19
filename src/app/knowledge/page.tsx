@@ -14,6 +14,8 @@ export default function KnowledgePage() {
   const [tree, setTree] = useState<SubjectNode[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
+  const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
+  const [selectedChapter, setSelectedChapter] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tagFilter, setTagFilter] = useState("");
   const [loading, setLoading] = useState(true);
@@ -42,9 +44,22 @@ export default function KnowledgePage() {
   const visibleKps = useMemo(() => {
     return allKps.filter((k) => {
       if (tagFilter && !(k.tags || []).includes(tagFilter)) return false;
+      // 按选中的科目/章节/小节过滤
+      if (selectedSubject) {
+        const s = tree.find((x) => x.id === selectedSubject);
+        if (!s) return false;
+        const kpPath = k.path;
+        if (!kpPath.startsWith(s.name + " / ")) return false;
+      }
+      if (selectedChapter) {
+        const c = tree.flatMap((s) => s.chapters).find((x) => x.id === selectedChapter);
+        if (!c) return false;
+        if (!k.path.includes(" / " + c.name + " / ")) return false;
+      }
+      if (selectedSection && !k.path.endsWith(" / " + selectedSection)) return false;
       return true;
     });
-  }, [allKps, tagFilter]);
+  }, [allKps, tagFilter, selectedSubject, selectedChapter, selectedSection, tree]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -161,10 +176,15 @@ export default function KnowledgePage() {
                 <div className="flex items-center group">
                   <button
                     className="flex-1 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-secondary"
-                    onClick={() => setExpanded({ ...expanded, [s.id]: !expanded[s.id] })}
+                    onClick={() => {
+                      setExpanded({ ...expanded, [s.id]: !expanded[s.id] });
+                      setSelectedSubject(selectedSubject === s.id ? null : s.id);
+                      setSelectedChapter(null);
+                      setSelectedSection(null);
+                    }}
                   >
                     <ChevronRight size={14} className={cn("transition-transform", expanded[s.id] && "rotate-90")} />
-                    {s.name}
+                    <span className={selectedSubject === s.id ? "text-primary" : ""}>{s.name}</span>
                   </button>
                   <button
                     className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive p-1"
@@ -179,10 +199,14 @@ export default function KnowledgePage() {
                     <div key={c.id} className="ml-4">
                       <button
                         className="flex w-full items-center gap-1 rounded px-2 py-1 text-muted-foreground hover:bg-secondary"
-                        onClick={() => setExpanded({ ...expanded, [c.id]: !expanded[c.id] })}
+                        onClick={() => {
+                          setExpanded({ ...expanded, [c.id]: !expanded[c.id] });
+                          setSelectedChapter(selectedChapter === c.id ? null : c.id);
+                          setSelectedSection(null);
+                        }}
                       >
                         <ChevronRight size={14} className={cn("transition-transform", expanded[c.id] && "rotate-90")} />
-                        {c.name}
+                        <span className={selectedChapter === c.id ? "text-primary" : ""}>{c.name}</span>
                       </button>
                       {expanded[c.id] &&
                         c.sections.map((sec) => (
@@ -207,6 +231,11 @@ export default function KnowledgePage() {
         {/* 右侧列表 */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
+            {(selectedSubject || selectedChapter || selectedSection) && (
+              <Button size="sm" variant="outline" onClick={() => { setSelectedSubject(null); setSelectedChapter(null); setSelectedSection(null); }}>
+                显示全部
+              </Button>
+            )}
             <Select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} className="w-40">
               <option value="">全部标签</option>
               {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
