@@ -25,6 +25,7 @@ export default function ExamPage() {
   const [questions, setQuestions] = useState<ExamQuestion[]>([]);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [images, setImages] = useState<Record<string, string>>({});
   const [timeSpent, setTimeSpent] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const enterTime = useRef(Date.now());
@@ -55,10 +56,40 @@ export default function ExamPage() {
     setAnswers((a) => ({ ...a, [qid]: val }));
   }
 
+  function handleImageUpload(qid: string, file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      setImages((prev) => ({ ...prev, [qid]: reader.result as string }));
+    };
+    reader.readAsDataURL(file);
+  }
+
   async function submit() {
     if (submitting) return;
     setSubmitting(true);
     recordTime();
+
+    // 先处理有图片的简答题：调用图片判分接口
+    const imageQids = Object.keys(images).filter((qid) => images[qid]);
+    for (const qid of imageQids) {
+      const q = questions.find((x) => x.id === qid);
+      if (!q) continue;
+      try {
+        await fetch("/api/exam/submit-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            paperId,
+            questionId: qid,
+            imageBase64: images[qid],
+            userAnswer: answers[qid] || "",
+            questionText: q.question_text,
+            correctAnswer: "",
+          }),
+        });
+      } catch {}
+    }
+
     const payload = {
       paperId,
       answers: questions.map((q) => ({
@@ -152,12 +183,42 @@ export default function ExamPage() {
           )}
 
           {(q.question_type === "fill_blank" || q.question_type === "short_answer") && (
-            <Textarea
-              rows={q.question_type === "short_answer" ? 6 : 2}
-              value={answers[q.id] || ""}
-              onChange={(e) => setAnswer(q.id, e.target.value)}
-              placeholder={q.question_type === "fill_blank" ? "请输入答案" : "请作答"}
-            />
+            <>
+              <Textarea
+                rows={q.question_type === "short_answer" ? 6 : 2}
+                value={answers[q.id] || ""}
+                onChange={(e) => setAnswer(q.id, e.target.value)}
+                placeholder={q.question_type === "fill_blank" ? "请输入答案" : "请作答（可上传手写/截图图片辅助判分）"}
+              />
+              {q.question_type === "short_answer" && (
+                <div className="space-y-2">
+                  {images[q.id] ? (
+                    <div className="flex items-center gap-3">
+                      <img src={images[q.id]} alt="答案图片" className="h-32 rounded-md border" />
+                      <Button size="sm" variant="outline" onClick={() => setImages((prev) => { const n = { ...prev }; delete n[q.id]; return n; })}>
+                        删除重传
+                      </Button>
+                    </div>
+                  ) : (
+                    <label className="inline-block cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleImageUpload(q.id, f);
+                        }}
+                      />
+                      <span className="inline-block rounded-md border border-border px-4 py-2 text-sm hover:bg-secondary">
+                        上传图片（拍照/相册）
+                      </span>
+                    </label>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
