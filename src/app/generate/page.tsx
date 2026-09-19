@@ -75,6 +75,10 @@ export default function GeneratePage() {
   }
 
   async function start() {
+    if (checked.size > 50) {
+      alert(`请分批生成，每次最多50个知识点（当前已选 ${checked.size} 个）`);
+      return;
+    }
     setRunning(true);
     setFinished(null);
     setDone(0); setSuccess(0); setFailed([]); setLog(["正在生成出题计划…"]);

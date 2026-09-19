@@ -88,7 +88,19 @@ function buildPrompt(params: {
 }`,
   };
 
-  return `你是一位专业的出题老师。请根据以下知识点生成一道考试题目。
+  const isEnglish = /英语|English|CET|四级|六级|考研英语/i.test(params.subject);
+
+  const subjectPrompt = isEnglish
+    ? `你是一位专业的大学英语四级（CET-4）出题老师。请根据以下单词知识点生成一道考题。
+知识点：${params.kpContent}
+题型：${typeSpec[params.questionType]}
+难度：${params.difficulty}
+要求：
+1. 题目需紧扣四级考试难度，考察单词在语境中的实际运用（如：选词填空、近义词辨析、词汇替换、翻译等）。
+2. 如果是选择题，干扰项必须具有迷惑性（如形近词、近义词）。
+3. 解析需包含：该词在句中的含义、整句翻译、错误选项的排除原因。
+4. 避免生成脱离语境的单纯拼写题。`
+    : `你是一位专业的出题老师。请根据以下知识点生成一道考试题目。
 知识点：${params.kpContent}
 所属科目：${params.subject}
 所属章节：${params.chapter} / ${params.section}
@@ -101,8 +113,10 @@ function buildPrompt(params: {
 3. 提供详细的答案和解析。
 4. 题目表述清晰，避免歧义。
 5. 如果是计算题，请给出完整解题步骤。
-6. 请结合近三年（2023-2026年）的最新案例、技术发展或时事背景出题，避免使用过时的数据和陈旧的例子。
-7. 如果是计算机相关题目，尽量结合当前主流的新技术和应用场景（如大语言模型AI、云计算、大数据、物联网、新型编程语言与框架等）。
+6. 请结合近三年（2023-2026年）的最新案例、技术发展或时事背景出题。
+7. 如果是计算机相关题目，尽量结合当前主流的新技术和应用场景。`;
+
+  return `${subjectPrompt}
 8. 返回严格的 JSON 格式，不要包含 markdown 标记，不要用代码块包裹。
 必须返回的 JSON 格式如下（字段名和类型严格一致）：
 ${typeFormat[params.questionType]}`;
