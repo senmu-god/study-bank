@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import type { QuestionType } from "./types";
+import type { QuestionType, Difficulty } from "./types";
+import { DIFFICULTY_SCORES, normalizeDifficulty } from "./types";
 
 function getClient() {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -19,7 +20,7 @@ export interface GeneratedQuestion {
   options: { label: string; text: string }[];
   correct_answer: string;
   explanation: string;
-  difficulty: "easy" | "medium" | "hard";
+  difficulty: Difficulty;
   difficulty_score: number;
 }
 
@@ -88,37 +89,77 @@ function buildPrompt(params: {
 }`,
   };
 
-  const isEnglish = /英语|English|CET|四级|六级|考研英语/i.test(params.subject);
+  const currentYear = new Date().getFullYear();
+  const yearRange = `${currentYear - 3}-${currentYear}`;
+  const diffLabel: Record<string, string> = {
+    easy: "容易",
+    medium_easy: "较易",
+    medium: "中等",
+    hard: "较难",
+  };
+  const diff = diffLabel[params.difficulty] || "中等";
+  const kp = params.kpContent;
+  const subj = params.subject;
+  const existing = params.existingSummary || "（暂无）";
 
-  const subjectPrompt = isEnglish
-    ? `你是一位专业的大学英语四级（CET-4）出题老师。请根据以下单词知识点生成一道考题。
-知识点：${params.kpContent}
+  const isMath = /数学|高数|微积分|线性代数|高等数学/.test(subj);
+  const isEnglish = /英语|English|CET|四级|六级/.test(subj);
+  const isCS = /计算机|电脑|办公|office|网络|程序|数据库/.test(subj);
+
+  let subjectPrompt: string;
+  if (isMath) {
+    subjectPrompt = `你是一位四川省专升本（理工农医类）高等数学命题专家，依据四川专升本考纲命题，参考同济版《高等数学》与《线性代数》。
+知识点：${kp}
 题型：${typeSpec[params.questionType]}
-难度：${params.difficulty}
-要求：
-1. 题目需紧扣四级考试难度，考察单词在语境中的实际运用（如：选词填空、近义词辨析、词汇替换、翻译等）。
-2. 如果是选择题，干扰项必须具有迷惑性（如形近词、近义词）。
-3. 解析需包含：该词在句中的含义、整句翻译、错误选项的排除原因。
-4. 避免生成脱离语境的单纯拼写题。`
-    : `你是一位专业的出题老师。请根据以下知识点生成一道考试题目。
-知识点：${params.kpContent}
-所属科目：${params.subject}
+难度：${diff}
+命题约束：
+1. 线性代数约占20%，其他内容约占80%。
+2. 题型覆盖：判断题、单选题、填空题、计算题、解答题、证明题、应用题。
+3. 侧重基本概念、基本计算，严禁考研级别偏难怪题。
+4. 应用题必须结合近三年（${yearRange}）的实际生活、科技或经济案例，严禁使用老旧例子。
+5. 解析须呈现完整解题步骤；证明题须逻辑严谨。
+历史已出题（避免重复）：${existing}`;
+  } else if (isEnglish) {
+    subjectPrompt = `你是一位四川省专升本大学英语命题专家，依据四川专升本英语考纲命题（掌握约3500个常用单词及搭配）。
+知识点：${kp}
+题型：${typeSpec[params.questionType]}
+难度：${diff}
+命题约束：
+1. 题型覆盖：补全对话、词汇与语法结构（单选）、选词填空、完形填空、英译汉、汉译英、短文写作。
+2. 难度介于高考与四级之间。
+3. 选词填空和完形填空必须提供贴近近三年（${yearRange}）社会热点、科技发展或校园生活的完整语境。
+4. 语料需新鲜，严禁使用过时的网络梗或陈旧教材原题。
+历史已出题（避免重复）：${existing}`;
+  } else if (isCS) {
+    subjectPrompt = `你是一位四川省专升本计算机基础命题专家，依据四川专升本考纲命题。
+知识点：${kp}
+题型：${typeSpec[params.questionType]}
+难度：${diff}
+命题约束：
+1. 模块占比参考：计算机基础知识15%、软硬件基础20%、办公自动化35%、网络与信息安全10%、算法与程序设计10%、数据库技术5%、计算机新技术5%。
+2. 题型覆盖：单选题、多选题、判断题、填空题、简答题、应用设计题、综合应用题。
+3. 办公自动化部分必须基于近三年（${yearRange}）主流的 Office 版本（如 Office 2021/365、WPS最新版）出题，避免过时界面。
+4. 涉及新技术（如AI、大数据、云计算、物联网）的题目，必须以近三年的实际应用为基础。
+历史已出题（避免重复）：${existing}`;
+  } else {
+    subjectPrompt = `你是一位四川省专升本命题专家。
+知识点：${kp}
+所属科目：${subj}
 所属章节：${params.chapter} / ${params.section}
 题型要求：${typeSpec[params.questionType]}
-难度：${params.difficulty}
-历史已出题（避免重复）：${params.existingSummary || "（暂无）"}
+难度：${diff}
+历史已出题（避免重复）：${existing}
 硬性要求：
 1. 题目必须紧扣该知识点，考察核心概念或应用。
-2. 题型格式必须严格遵守上述【题型要求】，不要串题型（判断题绝不能写成选择题）。
-3. 提供详细的答案和解析。
-4. 题目表述清晰，避免歧义。
-5. 如果是计算题，请给出完整解题步骤。
-6. 请结合近三年（2023-2026年）的最新案例、技术发展或时事背景出题。
-7. 如果是计算机相关题目，尽量结合当前主流的新技术和应用场景。`;
+2. 题型格式必须严格遵守上述【题型要求】，不要串题型。
+3. 提供详细的答案和解析，计算题给出完整步骤。
+4. 请结合近三年（${yearRange}）的最新案例、技术或社会背景出题，避免使用过时数据。`;
+  }
 
   return `${subjectPrompt}
-8. 返回严格的 JSON 格式，不要包含 markdown 标记，不要用代码块包裹。
-必须返回的 JSON 格式如下（字段名和类型严格一致）：
+5. 必须返回严格的 JSON 格式，不要包含 markdown 标记，不要用代码块包裹。
+返回 JSON 中 difficulty 必须是 easy/medium_easy/medium/hard 之一，difficulty_score 为 0.3/0.5/0.7/0.9 之一。
+必须返回的 JSON 格式如下：
 ${typeFormat[params.questionType]}`;
 }
 
@@ -158,8 +199,23 @@ function normalizeByType(q: GeneratedQuestion, type: QuestionType): GeneratedQue
   return q;
 }
 
+/** 陈旧元素：命中则判为反陈旧不通过，触发重写。 */
+const STALE_PATTERN =
+  /小明|小红|小刚|小李|Windows ?7|Windows ?XP|Office ?2003|Office ?2007|2010年以前|诺基亚|摩托罗拉|小灵通/i;
+
+function isStale(q: GeneratedQuestion): boolean {
+  return STALE_PATTERN.test(`${q.question_text} ${q.explanation}`);
+}
+
+/** 归一难度并强制 difficulty_score 与 difficulty 一一对应。 */
+function enforceDifficulty(q: GeneratedQuestion): GeneratedQuestion {
+  q.difficulty = normalizeDifficulty(q.difficulty);
+  q.difficulty_score = DIFFICULTY_SCORES[q.difficulty];
+  return q;
+}
+
 /**
- * 调用 DeepSeek 生成单题，失败自动重试 2 次，每次间隔 2 秒。
+ * 调用 DeepSeek 生成单题，失败/陈旧自动重试，最多 3 次。
  */
 export async function generateOneQuestion(params: {
   subject: string;
@@ -186,13 +242,18 @@ export async function generateOneQuestion(params: {
         response_format: { type: "json_object" },
       });
       const content = completion.choices[0]?.message?.content || "";
-      const parsed = extractJson(content);
+      let parsed = extractJson(content);
       // 兜底校验
       if (!parsed.question_text || !parsed.correct_answer || !parsed.explanation) {
         throw new Error("返回 JSON 缺少必要字段");
       }
-      if (!parsed.difficulty_score) parsed.difficulty_score = 0.5;
-      return normalizeByType(parsed, params.questionType);
+      parsed = normalizeByType(parsed, params.questionType);
+      parsed = enforceDifficulty(parsed);
+      // 反陈旧校验：命中旧元素则视为不合格，触发重写
+      if (isStale(parsed)) {
+        throw new Error("题目含陈旧案例，需按近三年背景重写");
+      }
+      return parsed;
     } catch (err) {
       lastErr = err;
       if (attempt < 2) await new Promise((r) => setTimeout(r, 2000));

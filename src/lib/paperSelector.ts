@@ -21,6 +21,10 @@ const TYPE_ORDER: QuestionType[] = [
   "short_answer",
 ];
 
+/** 四川专升本难度比例：容易30 较易30 中等30 较难10 */
+const DIFF_ORDER: Difficulty[] = ["easy", "medium_easy", "medium", "hard"];
+const DIFF_WEIGHTS = [30, 30, 30, 10];
+
 /**
  * 最大余额法（Largest Remainder Method）：
  * total 个名额按 weights 比例分配，确保总和严格等于 total。
@@ -55,7 +59,7 @@ export function selectQuestionsForPaper(params: {
   totalQuestions: number;
   kpConfig: KpSelection[];
   typeRatios: TypeRatio;
-  difficultyRange: "easy" | "medium" | "hard" | "mixed";
+  difficultyRange: "easy" | "medium_easy" | "medium" | "hard" | "mixed";
   questionsByKp: Record<string, Question[]>;
 }): {
   selected: Question[];
@@ -83,6 +87,16 @@ export function selectQuestionsForPaper(params: {
   const usedQuestionIds = new Set<string>();
   const gaps: { kpId: string; target: number; actual: number }[] = [];
 
+  // 混合模式：按四川专升本 3:3:3:1 分配难度配额
+  const diffQuotas =
+    difficultyRange === "mixed"
+      ? DIFF_ORDER.reduce(
+          (acc, d, i) => ({ ...acc, [d]: largestRemainder(totalQuestions, DIFF_WEIGHTS)[i] }),
+          {} as Record<Difficulty, number>
+        )
+      : null;
+  const diffUsed: Record<Difficulty, number> = { easy: 0, medium_easy: 0, medium: 0, hard: 0 };
+
   const poolFilter = (q: Question) => {
     if (difficultyRange === "mixed") return true;
     return q.difficulty === difficultyRange;
@@ -103,22 +117,25 @@ export function selectQuestionsForPaper(params: {
     );
 
     let picked = 0;
-    // 先按题型配额挑
+    // 先按题型配额 + 难度配额挑
     for (const q of pool) {
       if (picked >= target) break;
       const usedOfType = selected.filter((s) => s.question_type === q.question_type).length;
-      if (usedOfType < typeQuota[q.question_type]) {
-        selected.push(q);
-        usedQuestionIds.add(q.id);
-        picked++;
-      }
+      if (usedOfType >= typeQuota[q.question_type]) continue;
+      // 混合模式：优先选难度配额尚未用完的题
+      if (diffQuotas && diffUsed[q.difficulty] >= diffQuotas[q.difficulty]) continue;
+      selected.push(q);
+      usedQuestionIds.add(q.id);
+      diffUsed[q.difficulty] = (diffUsed[q.difficulty] || 0) + 1;
+      picked++;
     }
-    // 配额满了还没取够，从池里补
+    // 配额满了还没取够，从池里补（不再卡难度配额）
     for (const q of pool) {
       if (picked >= target) break;
       if (!usedQuestionIds.has(q.id)) {
         selected.push(q);
         usedQuestionIds.add(q.id);
+        diffUsed[q.difficulty] = (diffUsed[q.difficulty] || 0) + 1;
         picked++;
       }
     }

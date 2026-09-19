@@ -1,4 +1,6 @@
-export type Difficulty = "easy" | "medium" | "hard";
+export type Difficulty = "easy" | "medium_easy" | "medium" | "hard";
+/** 出题/组卷难度模式：自动按知识点难度 / 单档 / 混合(按四川专升本3:3:3:1) */
+export type DifficultyMode = "auto" | Difficulty | "mixed";
 export type QuestionType =
   | "single_choice"
   | "multiple_choice"
@@ -85,7 +87,43 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
 };
 
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
-  easy: "简单",
+  easy: "容易",
+  medium_easy: "较易",
   medium: "中等",
-  hard: "困难",
+  hard: "较难",
 };
+
+/** difficulty_score 与 difficulty 一一对应 */
+export const DIFFICULTY_SCORES: Record<Difficulty, number> = {
+  easy: 0.3,
+  medium_easy: 0.5,
+  medium: 0.7,
+  hard: 0.9,
+};
+
+/** 颜色标签：绿=容易 浅绿=较易 橙=中等 红=较难 */
+export const DIFFICULTY_COLORS: Record<Difficulty, string> = {
+  easy: "bg-green-100 text-green-700 border-green-300",
+  medium_easy: "bg-lime-100 text-lime-700 border-lime-300",
+  medium: "bg-orange-100 text-orange-700 border-orange-300",
+  hard: "bg-red-100 text-red-700 border-red-300",
+};
+
+export const DIFFICULTY_MODES: { value: DifficultyMode; label: string }[] = [
+  { value: "auto", label: "自动匹配（按知识点难度）" },
+  { value: "easy", label: "容易" },
+  { value: "medium_easy", label: "较易" },
+  { value: "medium", label: "中等" },
+  { value: "hard", label: "较难" },
+  { value: "mixed", label: "混合（3:3:3:1）" },
+];
+
+/** 把旧的三档难度(knowledge_points 历史值)规整到新四档 */
+export function normalizeDifficulty(v: unknown): Difficulty {
+  const s = String(v || "").toLowerCase();
+  if (s === "easy" || s === "简单" || s === "容易") return "easy";
+  if (s === "medium_easy" || s === "较易") return "medium_easy";
+  if (s === "medium" || s === "中等") return "medium";
+  if (s === "hard" || s === "困难" || s === "较难") return "hard";
+  return "medium";
+}

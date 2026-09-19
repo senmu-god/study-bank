@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/controls";
-import type { GenTask } from "@/lib/types";
-import { QUESTION_TYPE_LABELS } from "@/lib/types";
+import type { GenTask, DifficultyMode } from "@/lib/types";
+import { QUESTION_TYPE_LABELS, DIFFICULTY_MODES } from "@/lib/types";
+import { Select } from "@/components/ui/controls";
 import KnowledgeTreeSelector from "@/components/KnowledgeTreeSelector";
 
 const CONCURRENCY = 4;
@@ -28,6 +29,7 @@ export default function GeneratePage() {
 
   const [tree, setTree] = useState<SubjectNode[]>([]);
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [difficultyMode, setDifficultyMode] = useState<DifficultyMode>("auto");
 
   useEffect(() => {
     fetch("/api/knowledge/tree").then((r) => r.json()).then((d) => setTree(d.tree || []));
@@ -70,7 +72,7 @@ export default function GeneratePage() {
       const planRes = await fetch("/api/generate/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dailyCount: 24, ...scopeParam }),
+        body: JSON.stringify({ dailyCount: 24, difficultyMode, ...scopeParam }),
       });
       const planData = await planRes.json();
       if (planData.error) {
@@ -148,6 +150,18 @@ export default function GeneratePage() {
             默认生成 24 题：今日新知识点约 60%，历史知识点约 40%。已有5题以上的知识点自动跳过。
             {checked.size === 0 && <span className="text-orange-600">（未选范围则全库随机）</span>}
           </p>
+          <div className="flex items-center gap-2">
+            <label className="text-sm whitespace-nowrap">难度模式</label>
+            <Select
+              value={difficultyMode}
+              onChange={(e) => setDifficultyMode(e.target.value as DifficultyMode)}
+              className="max-w-xs"
+            >
+              {DIFFICULTY_MODES.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </Select>
+          </div>
           <Button onClick={start} disabled={running}>
             {running ? "生成中…" : "生成今日题目"}
           </Button>

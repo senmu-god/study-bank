@@ -29,7 +29,7 @@ export async function POST(req: Request) {
       totalQuestions: number;
       kpConfig: KpSelection[];
       typeRatios: TypeRatio;
-      difficultyRange: "easy" | "medium" | "hard" | "mixed";
+      difficultyRange: "easy" | "medium_easy" | "medium" | "hard" | "mixed";
       paperType: string;
       fromWrong?: boolean;
     };

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import type { QuestionType, GenTask, Difficulty } from "@/lib/types";
+import type { QuestionType, GenTask, Difficulty, DifficultyMode } from "@/lib/types";
+import { normalizeDifficulty } from "@/lib/types";
+import { largestRemainder } from "@/lib/paperSelector";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,10 @@ const TYPE_CYCLE: QuestionType[] = [
   "true_false",
   "short_answer",
 ];
+
+/** 四川专升本难度比例：容易30 较易30 中等30 较难10 */
+const DIFF_ORDER: Difficulty[] = ["easy", "medium_easy", "medium", "hard"];
+const DIFF_WEIGHTS = [30, 30, 30, 10];
 
 interface KpRow {
   id: string;
@@ -35,6 +41,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const dailyCount = Number(body.dailyCount || 24);
     const todayRatio = Number(body.todayRatio || 0.6);
+    const difficultyMode: DifficultyMode = body.difficultyMode || "auto";
     const kpIds: string[] = Array.isArray(body.kpIds) ? body.kpIds.filter(Boolean) : [];
 
     const sb = getSupabaseAdmin();
@@ -75,15 +82,37 @@ export async function POST(req: Request) {
     const pool = [...freshRemainder, ...historical];
     chosen.push(...pool.slice(0, rest));
 
-    const tasks: GenTask[] = chosen.map((k, i) => ({
-      kpId: k.id,
-      subject: k.sections?.chapters?.subjects?.name || "",
-      chapter: k.sections?.chapters?.name || "",
-      section: k.sections?.name || "",
-      kpContent: k.content,
-      questionType: TYPE_CYCLE[i % TYPE_CYCLE.length],
-      difficulty: k.difficulty || "medium",
-    }));
+    // 按难度模式为每个任务分配难度
+    const diffAlloc =
+      difficultyMode === "mixed"
+        ? largestRemainder(chosen.length, DIFF_WEIGHTS)
+        : null;
+    const diffQueue: Difficulty[] = [];
+    if (diffAlloc) {
+      DIFF_ORDER.forEach((d, i) => {
+        for (let n = 0; n < diffAlloc[i]; n++) diffQueue.push(d);
+      });
+    }
+
+    const tasks: GenTask[] = chosen.map((k, i) => {
+      let difficulty: Difficulty;
+      if (difficultyMode === "mixed") {
+        difficulty = diffQueue[i] || "medium";
+      } else if (difficultyMode !== "auto") {
+        difficulty = difficultyMode;
+      } else {
+        difficulty = normalizeDifficulty(k.difficulty);
+      }
+      return {
+        kpId: k.id,
+        subject: k.sections?.chapters?.subjects?.name || "",
+        chapter: k.sections?.chapters?.name || "",
+        section: k.sections?.name || "",
+        kpContent: k.content,
+        questionType: TYPE_CYCLE[i % TYPE_CYCLE.length],
+        difficulty,
+      };
+    });
 
     return NextResponse.json({
       tasks,

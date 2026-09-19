@@ -222,10 +222,11 @@ export default function CreatePaperPage() {
               <Input type="number" value={total} onChange={(e) => setTotal(Number(e.target.value))} />
               <label className="text-sm">整卷难度</label>
               <Select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
-                <option value="mixed">混合</option>
-                <option value="easy">简单</option>
+                <option value="mixed">混合（容易30/较易30/中等30/较难10）</option>
+                <option value="easy">容易</option>
+                <option value="medium_easy">较易</option>
                 <option value="medium">中等</option>
-                <option value="hard">困难</option>
+                <option value="hard">较难</option>
               </Select>
             </CardContent>
           </Card>

@@ -6,8 +6,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge, Input, Textarea, Select } from "@/components/ui/controls";
 import type { Question, QuestionType, Difficulty } from "@/lib/types";
-import { QUESTION_TYPE_LABELS, DIFFICULTY_LABELS } from "@/lib/types";
+import { QUESTION_TYPE_LABELS, DIFFICULTY_LABELS, DIFFICULTY_COLORS } from "@/lib/types";
 import { formatDateTime, cn } from "@/lib/utils";
+
+function DiffBadge({ difficulty }: { difficulty: Difficulty }) {
+  return (
+    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium", DIFFICULTY_COLORS[difficulty] || DIFFICULTY_COLORS.medium)}>
+      {DIFFICULTY_LABELS[difficulty] || "中等"}
+    </span>
+  );
+}
 
 type QWithKp = Question & {
   knowledge_points: {
@@ -76,7 +84,7 @@ export default function QuestionsPage() {
             <CardContent className="p-3 text-sm">
               <div className="flex items-start gap-2">
                 <Badge variant="secondary">{QUESTION_TYPE_LABELS[q.question_type]}</Badge>
-                <Badge>{DIFFICULTY_LABELS[q.difficulty]}</Badge>
+                <DiffBadge difficulty={q.difficulty} />
                 <span className="flex-1 line-clamp-2">{q.question_text}</span>
                 <Eye size={14} className="text-muted-foreground shrink-0 mt-1" />
               </div>
@@ -110,7 +118,7 @@ export default function QuestionsPage() {
               <div className="space-y-3 text-sm">
                 <div className="flex gap-2">
                   <Badge variant="secondary">{QUESTION_TYPE_LABELS[detail.question_type]}</Badge>
-                  <Badge>{DIFFICULTY_LABELS[detail.difficulty]}</Badge>
+                  <DiffBadge difficulty={detail.difficulty} />
                 </div>
                 <p className="whitespace-pre-wrap font-medium">{detail.question_text}</p>
                 {detail.options && detail.options.length > 0 && (
@@ -159,9 +167,10 @@ export default function QuestionsPage() {
                 <div>
                   <label className="text-xs text-muted-foreground">难度</label>
                   <Select value={editForm.difficulty || "medium"} onChange={(e) => setEditForm({ ...editForm, difficulty: e.target.value as Difficulty })}>
-                    <option value="easy">简单</option>
+                    <option value="easy">容易</option>
+                    <option value="medium_easy">较易</option>
                     <option value="medium">中等</option>
-                    <option value="hard">困难</option>
+                    <option value="hard">较难</option>
                   </Select>
                 </div>
                 <div className="flex gap-2">
