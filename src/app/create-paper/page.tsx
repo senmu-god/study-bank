@@ -150,15 +150,23 @@ export default function CreatePaperPage() {
                   <button
                     key={s.id}
                     onClick={() => {
-                      const next = new Set(subjectFilter);
-                      if (active) next.add(s.id); else next.delete(s.id);
-                      setSubjectFilter(next);
+                      setSubjectFilter((prev) => {
+                        const next = new Set(prev);
+                        if (next.size === 0) {
+                          next.add(s.id);
+                        } else if (next.has(s.id)) {
+                          next.delete(s.id);
+                        } else {
+                          next.add(s.id);
+                        }
+                        return next;
+                      });
                     }}
                     className={`rounded-full px-3 py-1 text-xs ${
                       active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
                     }`}
                   >
-                    {s.name}
+                    {active && "✓ "}{s.name}
                   </button>
                 );
               })}
