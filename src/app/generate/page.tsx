@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/controls";
 import type { GenTask } from "@/lib/types";
 import { QUESTION_TYPE_LABELS } from "@/lib/types";
+import KnowledgeTreeSelector from "@/components/KnowledgeTreeSelector";
 
 const CONCURRENCY = 4;
 
@@ -31,24 +32,6 @@ export default function GeneratePage() {
   useEffect(() => {
     fetch("/api/knowledge/tree").then((r) => r.json()).then((d) => setTree(d.tree || []));
   }, []);
-
-  function allKpIds(): string[] {
-    const ids: string[] = [];
-    for (const s of tree) for (const c of s.chapters) for (const sec of c.sections) for (const kp of sec.kps) ids.push(kp.id);
-    return ids;
-  }
-  function todayKpIds(): string[] {
-    const today = new Date().toISOString().slice(0, 10);
-    const ids: string[] = [];
-    for (const s of tree) for (const c of s.chapters) for (const sec of c.sections) for (const kp of sec.kps) if (kp.source_date === today) ids.push(kp.id);
-    return ids;
-  }
-  function toggleKp(id: string) {
-    setChecked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  }
-  function toggleAllKps(ids: string[], check: boolean) {
-    setChecked((prev) => { const n = new Set(prev); for (const id of ids) check ? n.add(id) : n.delete(id); return n; });
-  }
 
   async function worker(taskQueue: GenTask[]) {
     while (taskQueue.length > 0) {
@@ -152,67 +135,10 @@ export default function GeneratePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>选择生成范围</CardTitle>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <Button size="sm" variant="outline" onClick={() => toggleAllKps(allKpIds(), true)}>全选</Button>
-            <Button size="sm" variant="outline" onClick={() => toggleAllKps(allKpIds(), false)}>清空</Button>
-            <Button size="sm" variant="outline" onClick={() => setChecked(new Set(todayKpIds()))}>仅今日导入</Button>
-            <span className="ml-auto text-muted-foreground">已选 {checked.size} 个知识点</span>
-          </div>
+          <CardTitle>选择生成范围（已选 {checked.size} 个知识点）</CardTitle>
         </CardHeader>
-        <CardContent className="max-h-80 overflow-auto space-y-2 text-sm">
-          {tree.map((s) => {
-            const sIds = s.chapters.flatMap((c) => c.sections.flatMap((sec) => sec.kps.map((k) => k.id)));
-            return (
-              <div key={s.id}>
-                <label className="flex items-center gap-2 font-medium">
-                  <input type="checkbox"
-                    checked={sIds.length > 0 && sIds.every((id) => checked.has(id))}
-                    onChange={(e) => toggleAllKps(sIds, e.target.checked)} />
-                  {s.name}
-                </label>
-                <div className="ml-5 space-y-1">
-                  {s.chapters.map((c) => {
-                    const cIds = c.sections.flatMap((sec) => sec.kps.map((k) => k.id));
-                    return (
-                      <div key={c.id}>
-                        <label className="flex items-center gap-2">
-                          <input type="checkbox"
-                            checked={cIds.length > 0 && cIds.every((id) => checked.has(id))}
-                            onChange={(e) => toggleAllKps(cIds, e.target.checked)} />
-                          {c.name}
-                        </label>
-                        <div className="ml-5 space-y-0.5">
-                          {c.sections.map((sec) => {
-                            const secIds = sec.kps.map((k) => k.id);
-                            return (
-                              <div key={sec.id}>
-                                <label className="flex items-center gap-2 text-muted-foreground">
-                                  <input type="checkbox"
-                                    checked={secIds.length > 0 && secIds.every((id) => checked.has(id))}
-                                    onChange={(e) => toggleAllKps(secIds, e.target.checked)} />
-                                  {sec.name}
-                                </label>
-                                <div className="ml-5 space-y-0.5">
-                                  {sec.kps.map((kp) => (
-                                    <label key={kp.id} className="flex items-center gap-2">
-                                      <input type="checkbox" checked={checked.has(kp.id)} onChange={() => toggleKp(kp.id)} />
-                                      <span>{kp.content}</span>
-                                    </label>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-          {tree.length === 0 && <p className="text-muted-foreground text-xs">还没有知识点，请先去导入。</p>}
+        <CardContent>
+          <KnowledgeTreeSelector tree={tree} checked={checked} onChange={setChecked} />
         </CardContent>
       </Card>
 
