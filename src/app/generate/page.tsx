@@ -21,6 +21,7 @@ export default function GeneratePage() {
   const [failed, setFailed] = useState<FailItem[]>([]);
   const [success, setSuccess] = useState(0);
   const [log, setLog] = useState<string[]>([]);
+  const [finished, setFinished] = useState<null | { ok: number; fail: number }>(null);
 
   async function worker(taskQueue: GenTask[]) {
     while (taskQueue.length > 0) {
@@ -48,6 +49,7 @@ export default function GeneratePage() {
 
   async function start() {
     setRunning(true);
+    setFinished(null);
     setDone(0); setSuccess(0); setFailed([]); setLog(["正在生成出题计划…"]);
     try {
       const planRes = await fetch("/api/generate/plan", {
@@ -69,9 +71,20 @@ export default function GeneratePage() {
       }
       setPlan(tasks);
       setLog((l) => [...l, `计划生成 ${tasks.length} 题，开始并发生成…`]);
-      const queues = Array.from({ length: CONCURRENCY }, () => [...tasks]);
-      await Promise.all(queues.map((q) => worker(q)));
+      // 共享同一个队列，worker 从队列里 shift，避免重复生成
+      const queue = [...tasks];
+      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker(queue)));
       setRunning(false);
+      // 完成提示（读取最新 state）
+      setTimeout(() => {
+        setSuccess((curOk) => {
+          setFailed((curFail) => {
+            setFinished({ ok: curOk, fail: curFail.length });
+            return curFail;
+          });
+          return curOk;
+        });
+      }, 100);
     } catch (err) {
       const message = err instanceof Error ? err.message : "网络错误";
       setLog((l) => [...l, `✗ 请求失败：${message}`]);
@@ -83,13 +96,25 @@ export default function GeneratePage() {
     if (failed.length === 0) return;
     const retryTasks = failed.map((f) => f.task);
     setFailed([]);
+    setFinished(null);
     setRunning(true);
-    const queues = Array.from({ length: CONCURRENCY }, () => [...retryTasks]);
-    await Promise.all(queues.map((q) => worker(q)));
+    const queue = [...retryTasks];
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker(queue)));
     setRunning(false);
+    setTimeout(() => {
+      setSuccess((curOk) => {
+        setFailed((curFail) => {
+          setFinished({ ok: curOk, fail: curFail.length });
+          return curFail;
+        });
+        return curOk;
+      });
+    }, 100);
   }
 
   const total = plan.length || 0;
+  const progressDone = Math.min(done, total);
+  const progressPct = total > 0 ? Math.min(100, (progressDone / total) * 100) : 0;
 
   return (
     <div className="space-y-4">
@@ -105,15 +130,25 @@ export default function GeneratePage() {
           {total > 0 && (
             <div className="space-y-2">
               <div className="text-sm">
-                进度：{done}/{total}　成功 {success}　失败 {failed.length}
+                进度：{progressDone}/{total}　成功 {success}　失败 {failed.length}
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="h-full bg-primary transition-all" style={{ width: `${(done / total) * 100}%` }} />
+                <div className="h-full bg-primary transition-all" style={{ width: `${progressPct}%` }} />
               </div>
             </div>
           )}
         </CardContent>
       </Card>
+
+      {finished && !running && (
+        <div className="rounded-md border border-green-500/50 bg-green-50 p-4 text-sm">
+          <div className="font-medium text-green-700">✅ 生成完成！成功 {finished.ok} 题，失败 {finished.fail} 题。</div>
+          {finished.fail > 0 && <div className="mt-1 text-xs text-muted-foreground">失败题目见下方，可点"一键重试"。</div>}
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" onClick={() => (window.location.href = "/questions")}>查看题库</Button>
+          </div>
+        </div>
+      )}
 
       {failed.length > 0 && !running && (
         <Card>
