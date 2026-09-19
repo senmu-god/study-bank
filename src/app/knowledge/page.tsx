@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronRight, Plus, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, Plus, Pencil, Trash2, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge, Input, Select } from "@/components/ui/controls";
 import type { SubjectNode, KnowledgePoint, Difficulty } from "@/lib/types";
-import { DIFFICULTY_LABELS, QUESTION_TYPE_LABELS } from "@/lib/types";
+import { DIFFICULTY_LABELS } from "@/lib/types";
 import { formatDate, cn } from "@/lib/utils";
 
 export default function KnowledgePage() {
@@ -17,6 +17,9 @@ export default function KnowledgePage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tagFilter, setTagFilter] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showAddSubject, setShowAddSubject] = useState(false);
+  const [newSubjectName, setNewSubjectName] = useState("");
+  const [tagInputs, setTagInputs] = useState<Record<string, string>>({});
 
   async function load() {
     setLoading(true);
@@ -38,11 +41,10 @@ export default function KnowledgePage() {
 
   const visibleKps = useMemo(() => {
     return allKps.filter((k) => {
-      if (selectedSection && !k.path.endsWith(selectedSection)) return true; // 简化：选中小节时进一步过滤
       if (tagFilter && !(k.tags || []).includes(tagFilter)) return false;
       return true;
     });
-  }, [allKps, selectedSection, tagFilter]);
+  }, [allKps, tagFilter]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -50,9 +52,32 @@ export default function KnowledgePage() {
     return [...set];
   }, [allKps]);
 
-  async function del(id: string) {
+  async function delKp(id: string) {
     if (!confirm("确认删除该知识点？其下题目也会被删除。")) return;
     await fetch(`/api/knowledge/delete?id=${id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function delSubject(id: string, name: string) {
+    if (!confirm(`确认删除科目"${name}"？将同时删除其下所有章节、小节、知识点和题目！`)) return;
+    const r = await fetch(`/api/subjects?id=${id}`, { method: "DELETE" });
+    const d = await r.json();
+    if (d.error) alert("删除失败：" + d.error);
+    load();
+  }
+
+  async function addSubject() {
+    const name = newSubjectName.trim();
+    if (!name) return;
+    const r = await fetch("/api/subjects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const d = await r.json();
+    if (d.error) { alert("创建失败：" + d.error); return; }
+    setNewSubjectName("");
+    setShowAddSubject(false);
     load();
   }
 
@@ -66,6 +91,33 @@ export default function KnowledgePage() {
     load();
   }
 
+  async function addTagToKp(kpId: string) {
+    const tag = (tagInputs[kpId] || "").trim();
+    if (!tag) return;
+    const kp = allKps.find((k) => k.id === kpId);
+    if (!kp) return;
+    const newTags = [...(kp.tags || []), tag];
+    await fetch("/api/knowledge/update", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [kpId], tags: newTags }),
+    });
+    setTagInputs({ ...tagInputs, [kpId]: "" });
+    load();
+  }
+
+  async function removeTagFromKp(kpId: string, tag: string) {
+    const kp = allKps.find((k) => k.id === kpId);
+    if (!kp) return;
+    const newTags = (kp.tags || []).filter((t) => t !== tag);
+    await fetch("/api/knowledge/update", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [kpId], tags: newTags }),
+    });
+    load();
+  }
+
   function toggle(id: string) {
     const next = new Set(selected);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -76,8 +128,28 @@ export default function KnowledgePage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">知识点管理</h1>
-        <Link href="/knowledge/import"><Button><Plus size={16} /> 批量导入</Button></Link>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowAddSubject(true)}>
+            <Plus size={16} /> 添加科目
+          </Button>
+          <Link href="/knowledge/import"><Button><Plus size={16} /> 批量导入</Button></Link>
+        </div>
       </div>
+
+      {showAddSubject && (
+        <div className="flex items-center gap-2 p-3 bg-secondary rounded-lg">
+          <Input
+            placeholder="科目名称，如：数学"
+            value={newSubjectName}
+            onChange={(e) => setNewSubjectName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addSubject()}
+            className="w-60"
+            autoFocus
+          />
+          <Button size="sm" onClick={addSubject}>确定</Button>
+          <Button size="sm" variant="outline" onClick={() => { setShowAddSubject(false); setNewSubjectName(""); }}>取消</Button>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-[260px_1fr]">
         {/* 左侧树 */}
@@ -86,13 +158,22 @@ export default function KnowledgePage() {
             {loading && <p className="text-muted-foreground">加载中…</p>}
             {tree.map((s) => (
               <div key={s.id}>
-                <button
-                  className="flex w-full items-center gap-1 rounded px-2 py-1 font-medium hover:bg-secondary"
-                  onClick={() => setExpanded({ ...expanded, [s.id]: !expanded[s.id] })}
-                >
-                  <ChevronRight size={14} className={cn("transition-transform", expanded[s.id] && "rotate-90")} />
-                  {s.name}
-                </button>
+                <div className="flex items-center group">
+                  <button
+                    className="flex-1 flex items-center gap-1 rounded px-2 py-1 font-medium hover:bg-secondary"
+                    onClick={() => setExpanded({ ...expanded, [s.id]: !expanded[s.id] })}
+                  >
+                    <ChevronRight size={14} className={cn("transition-transform", expanded[s.id] && "rotate-90")} />
+                    {s.name}
+                  </button>
+                  <button
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive p-1"
+                    title="删除科目"
+                    onClick={() => delSubject(s.id, s.name)}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
                 {expanded[s.id] &&
                   s.chapters.map((c) => (
                     <div key={c.id} className="ml-4">
@@ -160,12 +241,29 @@ export default function KnowledgePage() {
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span>{k.path}</span>
                       <Badge variant="secondary">{DIFFICULTY_LABELS[k.difficulty]}</Badge>
-                      {(k.tags || []).map((t) => <Badge key={t}>{t}</Badge>)}
+                      {(k.tags || []).map((t) => (
+                        <Badge key={t} className="flex items-center gap-1 pr-1">
+                          {t}
+                          <button onClick={() => removeTagFromKp(k.id, t)} className="hover:text-destructive">
+                            <X size={10} />
+                          </button>
+                        </Badge>
+                      ))}
                       <span>{formatDate(k.source_date)}</span>
+                    </div>
+                    {/* 行内标签输入 */}
+                    <div className="mt-2 flex items-center gap-1">
+                      <Input
+                        placeholder="+ 标签（回车添加）"
+                        value={tagInputs[k.id] || ""}
+                        onChange={(e) => setTagInputs({ ...tagInputs, [k.id]: e.target.value })}
+                        onKeyDown={(e) => e.key === "Enter" && addTagToKp(k.id)}
+                        className="h-7 w-40 text-xs"
+                      />
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    <button className="text-muted-foreground hover:text-foreground" onClick={() => del(k.id)}>
+                    <button className="text-muted-foreground hover:text-foreground" onClick={() => delKp(k.id)}>
                       <Trash2 size={14} />
                     </button>
                   </div>
