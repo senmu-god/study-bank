@@ -150,15 +150,39 @@ export async function POST(req: Request) {
       kpStatMap.set(kpId, stat);
     }
 
+    // 查试卷类型
+    const { data: paperRow } = await sb.from("papers").select("id,title,paper_type").eq("id", paperId).single();
+    const isMock = paperRow?.paper_type === "mock";
+
     const total = questions.length;
+    const accuracy = total ? Math.round((correctCount / total) * 100) : 0;
+    const totalTime = results.reduce((s, r) => s + (r.timeSpentSeconds || 0), 0);
+
+    // 模考：生成分析记录
+    let analysis = null;
+    if (isMock) {
+      const weakPoints = [...kpStatMap.values()]
+        .filter((k) => k.correct / k.total < 0.6)
+        .map((k) => ({ kpId: k.kpId, content: k.content, rate: Math.round((k.correct / k.total) * 100) }));
+      const { data: analysisRow } = await sb
+        .from("mock_exam_analyses")
+        .insert({
+          paper_id: paperId,
+          total_score: correctCount,
+          correct_rate: accuracy,
+          time_spent: totalTime,
+          weak_points: weakPoints,
+        })
+        .select("id")
+        .single();
+      if (analysisRow) analysis = { id: analysisRow.id, weakPoints };
+    }
+
     return NextResponse.json({
-      summary: {
-        total,
-        correct: correctCount,
-        accuracy: total ? Math.round((correctCount / total) * 100) : 0,
-      },
+      summary: { total, correct: correctCount, accuracy, timeSpent: totalTime },
       results,
       kpStats: [...kpStatMap.values()],
+      analysis,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "判分失败";

@@ -11,6 +11,7 @@ import {
   Files,
   BookmarkX,
   Database,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,7 @@ const NAV = [
   { href: "/create-paper", label: "组卷", icon: FilePlus2 },
   { href: "/papers", label: "我的试卷", icon: Files },
   { href: "/wrong-answers", label: "错题本", icon: BookmarkX },
+  { href: "/mock-exams", label: "模考记录", icon: ClipboardList },
 ];
 
 export function Sidebar() {

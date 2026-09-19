@@ -17,6 +17,7 @@ interface Stats {
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [generatingMock, setGeneratingMock] = useState(false);
 
   useEffect(() => {
     fetch("/api/stats")
@@ -24,6 +25,15 @@ export default function DashboardPage() {
       .then(setStats)
       .catch(() => {});
   }, []);
+
+  async function generateMock() {
+    setGeneratingMock(true);
+    const r = await fetch("/api/papers/mock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+    const d = await r.json();
+    setGeneratingMock(false);
+    if (d.error) { alert("生成失败：" + d.error); return; }
+    window.location.href = `/exam/${d.paperId}`;
+  }
 
   const cards = [
     { label: "科目", value: stats?.subjects ?? "-", icon: BookOpen },
@@ -61,9 +71,13 @@ export default function DashboardPage() {
             <CardTitle>快捷操作</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
+            <Button className="w-full justify-start" onClick={generateMock} disabled={generatingMock}>
+              {generatingMock ? "正在生成…" : "生成模考试卷（24题）"}
+            </Button>
             <Link href="/knowledge/import"><Button className="w-full justify-start" variant="outline">批量导入知识点</Button></Link>
             <Link href="/generate"><Button className="w-full justify-start" variant="outline">生成今日题目</Button></Link>
             <Link href="/create-paper"><Button className="w-full justify-start" variant="outline">新建试卷</Button></Link>
+            <Link href="/mock-exams"><Button className="w-full justify-start" variant="outline">模考记录</Button></Link>
             <Link href="/wrong-answers"><Button className="w-full justify-start" variant="outline">复习错题（{stats?.dueForReview ?? 0}）</Button></Link>
           </CardContent>
         </Card>
