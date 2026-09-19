@@ -33,6 +33,11 @@ export default function QuestionsPage() {
   const [detail, setDetail] = useState<QWithKp | null>(null);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<Partial<QWithKp>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearInput, setClearInput] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function load(p = page) {
     setLoading(true);
@@ -45,6 +50,57 @@ export default function QuestionsPage() {
     setLoading(false);
   }
   useEffect(() => { load(1); }, []);
+
+  const allChecked = items.length > 0 && items.every((q) => selectedIds.has(q.id));
+  function toggleAll() {
+    if (allChecked) {
+      const next = new Set(selectedIds);
+      items.forEach((q) => next.delete(q.id));
+      setSelectedIds(next);
+    } else {
+      const next = new Set(selectedIds);
+      items.forEach((q) => next.add(q.id));
+      setSelectedIds(next);
+    }
+  }
+  function toggleOne(id: string) {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedIds(next);
+  }
+
+  async function doDeleteSelected() {
+    setBusy(true);
+    const r = await fetch("/api/questions/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ questionIds: [...selectedIds] }),
+    });
+    const d = await r.json();
+    setBusy(false);
+    setShowDeleteConfirm(false);
+    if (d.error) { alert("删除失败：" + d.error); return; }
+    alert(`已删除 ${d.deleted} 道题目`);
+    setSelectedIds(new Set());
+    load();
+  }
+
+  async function doClear() {
+    setBusy(true);
+    const r = await fetch("/api/questions/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: "确认清空" }),
+    });
+    const d = await r.json();
+    setBusy(false);
+    setShowClearConfirm(false);
+    setClearInput("");
+    if (d.error) { alert("清空失败：" + d.error); return; }
+    alert(`已清空题库，共删除 ${d.cleared} 道题目`);
+    setSelectedIds(new Set());
+    load(1);
+  }
 
   function openDetail(q: QWithKp) {
     setDetail(q);
@@ -77,12 +133,39 @@ export default function QuestionsPage() {
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">题库（{total} 题）</h1>
 
+      {/* 操作栏 */}
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+          全选本页
+        </label>
+        <span className="text-sm text-muted-foreground">已选 {selectedIds.size} 题</span>
+        <div className="flex-1" />
+        <Button
+          variant="outline"
+          disabled={selectedIds.size === 0 || busy}
+          onClick={() => setShowDeleteConfirm(true)}
+        >
+          删除选中（{selectedIds.size}）
+        </Button>
+        <Button variant="destructive" disabled={busy} onClick={() => setShowClearConfirm(true)}>
+          清空题库
+        </Button>
+      </div>
+
       <div className="space-y-2">
         {loading && <p className="text-sm text-muted-foreground">加载中…</p>}
         {items.map((q) => (
           <Card key={q.id} className="cursor-pointer hover:border-primary/40" onClick={() => openDetail(q)}>
             <CardContent className="p-3 text-sm">
               <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(q.id)}
+                  onChange={() => toggleOne(q.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1"
+                />
                 <Badge variant="secondary">{QUESTION_TYPE_LABELS[q.question_type]}</Badge>
                 <DiffBadge difficulty={q.difficulty} />
                 <span className="flex-1 line-clamp-2">{q.question_text}</span>
@@ -179,6 +262,38 @@ export default function QuestionsPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* 删除选中确认 */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="w-full max-w-md rounded-lg bg-card p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold">确认删除</h2>
+            <p className="mt-2 text-sm text-muted-foreground">将删除勾选的 <span className="font-bold text-red-500">{selectedIds.size}</span> 道题目，且不可恢复。是否继续？</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>取消</Button>
+              <Button variant="destructive" onClick={doDeleteSelected} disabled={busy}>{busy ? "删除中…" : "确认删除"}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 清空题库严格确认 */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowClearConfirm(false)}>
+          <div className="w-full max-w-md rounded-lg bg-card p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-red-500">危险操作：清空整个题库</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              将永久删除全部 <span className="font-bold">{total}</span> 道题目，且不可恢复。请在下方输入 <span className="font-bold text-red-500">确认清空</span> 四字以继续。
+            </p>
+            <Input value={clearInput} onChange={(e) => setClearInput(e.target.value)} placeholder="输入：确认清空" className="mt-3" />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowClearConfirm(false)}>取消</Button>
+              <Button variant="destructive" onClick={doClear} disabled={clearInput !== "确认清空" || busy}>
+                {busy ? "清空中…" : "永久清空"}
+              </Button>
+            </div>
           </div>
         </div>
       )}
