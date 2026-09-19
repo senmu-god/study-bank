@@ -35,13 +35,16 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const dailyCount = Number(body.dailyCount || 24);
     const todayRatio = Number(body.todayRatio || 0.6);
+    const kpIds: string[] = Array.isArray(body.kpIds) ? body.kpIds.filter(Boolean) : [];
 
     const sb = getSupabaseAdmin();
     const today = new Date().toISOString().slice(0, 10);
 
-    const { data: kps, error: kpErr } = await sb
+    let q = sb
       .from("knowledge_points")
       .select("id,content,difficulty,source_date, sections(name, chapters(name, subjects(name)))");
+    if (kpIds.length > 0) q = q.in("id", kpIds);
+    const { data: kps, error: kpErr } = await q;
     if (kpErr) throw kpErr;
 
     // 每个知识点的已有题目数
@@ -53,7 +56,9 @@ export async function POST(req: Request) {
       countByKp.set(q.knowledge_point_id, (countByKp.get(q.knowledge_point_id) || 0) + 1);
     }
 
-    const all = (kps as unknown as KpRow[]) || [];
+    const all = ((kps as unknown as KpRow[]) || []).filter(
+      (k) => (countByKp.get(k.id) || 0) < 5
+    );
     const fresh = all.filter((k) => k.source_date === today);
     const historical = all.filter((k) => k.source_date !== today);
 

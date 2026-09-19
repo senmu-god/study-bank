@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/controls";
@@ -9,9 +9,11 @@ import { QUESTION_TYPE_LABELS } from "@/lib/types";
 
 const CONCURRENCY = 4;
 
-interface FailItem {
-  task: GenTask;
-  error: string;
+interface FailItem { task: GenTask; error: string; }
+
+interface SubjectNode {
+  id: string; name: string;
+  chapters: { id: string; name: string; sections: { id: string; name: string; kps: { id: string; content: string; source_date: string }[] }[] }[];
 }
 
 export default function GeneratePage() {
@@ -22,6 +24,31 @@ export default function GeneratePage() {
   const [success, setSuccess] = useState(0);
   const [log, setLog] = useState<string[]>([]);
   const [finished, setFinished] = useState<null | { ok: number; fail: number }>(null);
+
+  const [tree, setTree] = useState<SubjectNode[]>([]);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    fetch("/api/knowledge/tree").then((r) => r.json()).then((d) => setTree(d.tree || []));
+  }, []);
+
+  function allKpIds(): string[] {
+    const ids: string[] = [];
+    for (const s of tree) for (const c of s.chapters) for (const sec of c.sections) for (const kp of sec.kps) ids.push(kp.id);
+    return ids;
+  }
+  function todayKpIds(): string[] {
+    const today = new Date().toISOString().slice(0, 10);
+    const ids: string[] = [];
+    for (const s of tree) for (const c of s.chapters) for (const sec of c.sections) for (const kp of sec.kps) if (kp.source_date === today) ids.push(kp.id);
+    return ids;
+  }
+  function toggleKp(id: string) {
+    setChecked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function toggleAllKps(ids: string[], check: boolean) {
+    setChecked((prev) => { const n = new Set(prev); for (const id of ids) check ? n.add(id) : n.delete(id); return n; });
+  }
 
   async function worker(taskQueue: GenTask[]) {
     while (taskQueue.length > 0) {
@@ -52,10 +79,11 @@ export default function GeneratePage() {
     setFinished(null);
     setDone(0); setSuccess(0); setFailed([]); setLog(["正在生成出题计划…"]);
     try {
+      const scopeParam = checked.size > 0 ? { kpIds: [...checked] } : {};
       const planRes = await fetch("/api/generate/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dailyCount: 24 }),
+        body: JSON.stringify({ dailyCount: 24, ...scopeParam }),
       });
       const planData = await planRes.json();
       if (planData.error) {
@@ -65,17 +93,15 @@ export default function GeneratePage() {
       }
       const tasks: GenTask[] = planData.tasks || [];
       if (tasks.length === 0) {
-        setLog(["没有可用的知识点来出题。请先在「知识点」页面导入一些知识点。"]);
+        setLog(["范围内没有可用知识点（可能都已有5题以上）。请先导入新知识点，或扩大选择范围。"]);
         setRunning(false);
         return;
       }
       setPlan(tasks);
       setLog((l) => [...l, `计划生成 ${tasks.length} 题，开始并发生成…`]);
-      // 共享同一个队列，worker 从队列里 shift，避免重复生成
       const queue = [...tasks];
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker(queue)));
       setRunning(false);
-      // 完成提示（读取最新 state）
       setTimeout(() => {
         setSuccess((curOk) => {
           setFailed((curFail) => {
@@ -119,10 +145,78 @@ export default function GeneratePage() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">AI 生成今日题目</h1>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>选择生成范围</CardTitle>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <Button size="sm" variant="outline" onClick={() => toggleAllKps(allKpIds(), true)}>全选</Button>
+            <Button size="sm" variant="outline" onClick={() => toggleAllKps(allKpIds(), false)}>清空</Button>
+            <Button size="sm" variant="outline" onClick={() => setChecked(new Set(todayKpIds()))}>仅今日导入</Button>
+            <span className="ml-auto text-muted-foreground">已选 {checked.size} 个知识点</span>
+          </div>
+        </CardHeader>
+        <CardContent className="max-h-80 overflow-auto space-y-2 text-sm">
+          {tree.map((s) => {
+            const sIds = s.chapters.flatMap((c) => c.sections.flatMap((sec) => sec.kps.map((k) => k.id)));
+            return (
+              <div key={s.id}>
+                <label className="flex items-center gap-2 font-medium">
+                  <input type="checkbox"
+                    checked={sIds.length > 0 && sIds.every((id) => checked.has(id))}
+                    onChange={(e) => toggleAllKps(sIds, e.target.checked)} />
+                  {s.name}
+                </label>
+                <div className="ml-5 space-y-1">
+                  {s.chapters.map((c) => {
+                    const cIds = c.sections.flatMap((sec) => sec.kps.map((k) => k.id));
+                    return (
+                      <div key={c.id}>
+                        <label className="flex items-center gap-2">
+                          <input type="checkbox"
+                            checked={cIds.length > 0 && cIds.every((id) => checked.has(id))}
+                            onChange={(e) => toggleAllKps(cIds, e.target.checked)} />
+                          {c.name}
+                        </label>
+                        <div className="ml-5 space-y-0.5">
+                          {c.sections.map((sec) => {
+                            const secIds = sec.kps.map((k) => k.id);
+                            return (
+                              <div key={sec.id}>
+                                <label className="flex items-center gap-2 text-muted-foreground">
+                                  <input type="checkbox"
+                                    checked={secIds.length > 0 && secIds.every((id) => checked.has(id))}
+                                    onChange={(e) => toggleAllKps(secIds, e.target.checked)} />
+                                  {sec.name}
+                                </label>
+                                <div className="ml-5 space-y-0.5">
+                                  {sec.kps.map((kp) => (
+                                    <label key={kp.id} className="flex items-center gap-2">
+                                      <input type="checkbox" checked={checked.has(kp.id)} onChange={() => toggleKp(kp.id)} />
+                                      <span>{kp.content}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          {tree.length === 0 && <p className="text-muted-foreground text-xs">还没有知识点，请先去导入。</p>}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="space-y-3 p-5">
           <p className="text-sm text-muted-foreground">
-            默认生成 24 题：今日新知识点约占 60%，历史知识点约占 40%。每个知识点生成 1 道题，题型随机。
+            默认生成 24 题：今日新知识点约 60%，历史知识点约 40%。已有5题以上的知识点自动跳过。
+            {checked.size === 0 && <span className="text-orange-600">（未选范围则全库随机）</span>}
           </p>
           <Button onClick={start} disabled={running}>
             {running ? "生成中…" : "生成今日题目"}
@@ -142,7 +236,9 @@ export default function GeneratePage() {
 
       {finished && !running && (
         <div className="rounded-md border border-green-500/50 bg-green-50 p-4 text-sm">
-          <div className="font-medium text-green-700">✅ 生成完成！成功 {finished.ok} 题，失败 {finished.fail} 题。</div>
+          <div className="font-medium text-green-700">
+            ✅ 生成完成！在 {checked.size > 0 ? `所选 ${checked.size} 个知识点范围` : "全库"} 内成功 {finished.ok} 题，失败 {finished.fail} 题。
+          </div>
           {finished.fail > 0 && <div className="mt-1 text-xs text-muted-foreground">失败题目见下方，可点"一键重试"。</div>}
           <div className="mt-2 flex gap-2">
             <Button size="sm" onClick={() => (window.location.href = "/questions")}>查看题库</Button>
