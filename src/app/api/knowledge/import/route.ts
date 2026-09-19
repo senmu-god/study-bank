@@ -4,11 +4,13 @@ import type { ParsedImportItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+const norm = (s: string) => (s || "").trim().replace(/\s+/g, " ");
+
 async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: ParsedImportItem[]) {
   const triples = new Set<string>();
   for (const it of items) {
     if (!it.subject || !it.chapter || !it.section || !it.content) continue;
-    triples.add(`${it.subject}||${it.chapter}||${it.section}`);
+    triples.add(`${norm(it.subject)}||${norm(it.chapter)}||${norm(it.section)}`);
   }
 
   const subjectNames = [...new Set([...triples].map((t) => t.split("||")[0]))];
@@ -17,7 +19,7 @@ async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: P
   // 科目
   const { data: existingSubjects, error: subjErr } = await sb.from("subjects").select("id,name");
   if (subjErr) throw subjErr;
-  const subjectMap = new Map<string, string>((existingSubjects || []).map((s) => [s.name, s.id]));
+  const subjectMap = new Map<string, string>((existingSubjects || []).map((s) => [norm(s.name), s.id]));
   const missingSubjects = subjectNames.filter((n) => !subjectMap.has(n));
   if (missingSubjects.length > 0) {
     const { data: inserted, error: insErr } = await sb
@@ -25,7 +27,7 @@ async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: P
       .insert(missingSubjects.map((name) => ({ name })))
       .select("id,name");
     if (insErr) throw insErr;
-    for (const row of inserted || []) subjectMap.set(row.name, row.id);
+    for (const row of inserted || []) subjectMap.set(norm(row.name), row.id);
   }
 
   // 章节
@@ -34,15 +36,19 @@ async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: P
     .select("id,name,subject_id");
   if (chSelErr) throw chSelErr;
   const chapterMap = new Map<string, string>(
-    (existingChapters || []).map((c) => [`${c.name}||${c.subject_id}`, c.id])
+    (existingChapters || []).map((c) => [`${norm(c.name)}||${c.subject_id}`, c.id])
   );
   const chaptersToInsert: { name: string; subject_id: string }[] = [];
+  const queuedChapters = new Set<string>();
   for (const tripleKey of triplesArr) {
     const [subjName, chName] = tripleKey.split("||");
     const subjId = subjectMap.get(subjName);
     if (!subjId) continue;
     const chKey = `${chName}||${subjId}`;
-    if (!chapterMap.has(chKey)) chaptersToInsert.push({ name: chName, subject_id: subjId });
+    if (!chapterMap.has(chKey) && !queuedChapters.has(chKey)) {
+      queuedChapters.add(chKey);
+      chaptersToInsert.push({ name: chName, subject_id: subjId });
+    }
   }
   if (chaptersToInsert.length > 0) {
     const { data: inserted, error: chInsErr } = await sb
@@ -50,7 +56,7 @@ async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: P
       .insert(chaptersToInsert)
       .select("id,name,subject_id");
     if (chInsErr) throw chInsErr;
-    for (const row of inserted || []) chapterMap.set(`${row.name}||${row.subject_id}`, row.id);
+    for (const row of inserted || []) chapterMap.set(`${norm(row.name)}||${row.subject_id}`, row.id);
   }
 
   // 小节
@@ -58,14 +64,17 @@ async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: P
     .from("sections")
     .select("id,name,chapter_id");
   const sectionMap = new Map<string, string>(
-    (existingSections || []).map((s) => [`${s.name}||${s.chapter_id}`, s.id])
+    (existingSections || []).map((s) => [`${norm(s.name)}||${s.chapter_id}`, s.id])
   );
   const sectionsToInsert: { name: string; chapter_id: string }[] = [];
+  const queuedSections = new Set<string>();
   for (const tripleKey of triplesArr) {
     const [subjName, chName, secName] = tripleKey.split("||");
     const chapterId = chapterMap.get(`${chName}||${subjectMap.get(subjName)}`);
     if (!chapterId) continue;
-    if (!sectionMap.has(`${secName}||${chapterId}`)) {
+    const secKey = `${secName}||${chapterId}`;
+    if (!sectionMap.has(secKey) && !queuedSections.has(secKey)) {
+      queuedSections.add(secKey);
       sectionsToInsert.push({ name: secName, chapter_id: chapterId });
     }
   }
@@ -74,7 +83,7 @@ async function upsertHierarchy(sb: ReturnType<typeof getSupabaseAdmin>, items: P
       .from("sections")
       .insert(sectionsToInsert)
       .select("id,name,chapter_id");
-    for (const row of inserted || []) sectionMap.set(`${row.name}||${row.chapter_id}`, row.id);
+    for (const row of inserted || []) sectionMap.set(`${norm(row.name)}||${row.chapter_id}`, row.id);
   }
 
   return { subjectMap, chapterMap, sectionMap };
@@ -92,9 +101,9 @@ export async function POST(req: Request) {
     const rows = items
       .filter((it) => it.subject && it.chapter && it.section && it.content)
       .map((it) => {
-        const sid = subjectMap.get(it.subject);
-        const cid = chapterMap.get(`${it.chapter}||${sid}`);
-        const sectionId = sectionMap.get(`${it.section}||${cid}`);
+        const sid = subjectMap.get(norm(it.subject));
+        const cid = chapterMap.get(`${norm(it.chapter)}||${sid}`);
+        const sectionId = sectionMap.get(`${norm(it.section)}||${cid}`);
         return {
           section_id: sectionId,
           content: it.content,
