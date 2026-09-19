@@ -48,23 +48,35 @@ export default function GeneratePage() {
 
   async function start() {
     setRunning(true);
-    setDone(0); setSuccess(0); setFailed([]); setLog([]);
-    const planRes = await fetch("/api/generate/plan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dailyCount: 24 }),
-    });
-    const planData = await planRes.json();
-    if (planData.error) {
-      setLog((l) => [...l, planData.error]);
+    setDone(0); setSuccess(0); setFailed([]); setLog(["正在生成出题计划…"]);
+    try {
+      const planRes = await fetch("/api/generate/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dailyCount: 24 }),
+      });
+      const planData = await planRes.json();
+      if (planData.error) {
+        setLog((l) => [...l, `✗ ${planData.error}`]);
+        setRunning(false);
+        return;
+      }
+      const tasks: GenTask[] = planData.tasks || [];
+      if (tasks.length === 0) {
+        setLog(["没有可用的知识点来出题。请先在「知识点」页面导入一些知识点。"]);
+        setRunning(false);
+        return;
+      }
+      setPlan(tasks);
+      setLog((l) => [...l, `计划生成 ${tasks.length} 题，开始并发生成…`]);
+      const queues = Array.from({ length: CONCURRENCY }, () => [...tasks]);
+      await Promise.all(queues.map((q) => worker(q)));
       setRunning(false);
-      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "网络错误";
+      setLog((l) => [...l, `✗ 请求失败：${message}`]);
+      setRunning(false);
     }
-    const tasks: GenTask[] = planData.tasks;
-    setPlan(tasks);
-    const queues = Array.from({ length: CONCURRENCY }, () => [...tasks]);
-    await Promise.all(queues.map((q) => worker(q)));
-    setRunning(false);
   }
 
   async function retryFailed() {

@@ -26,6 +26,7 @@ export default function ExamPage() {
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [timeSpent, setTimeSpent] = useState<Record<string, number>>({});
+  const [submitting, setSubmitting] = useState(false);
   const enterTime = useRef(Date.now());
 
   useEffect(() => {
@@ -55,6 +56,8 @@ export default function ExamPage() {
   }
 
   async function submit() {
+    if (submitting) return;
+    setSubmitting(true);
     recordTime();
     const payload = {
       paperId,
@@ -64,14 +67,23 @@ export default function ExamPage() {
         timeSpentSeconds: timeSpent[q.id] || 0,
       })),
     };
-    const r = await fetch("/api/exam/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const d = await r.json();
-    if (d.error) { alert(d.error); return; }
-    router.push(`/results/${paperId}`);
+    try {
+      const r = await fetch("/api/exam/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+      if (d.error) {
+        alert("提交失败：" + d.error);
+        setSubmitting(false);
+        return;
+      }
+      router.push(`/results/${paperId}`);
+    } catch (err) {
+      alert("网络错误，提交失败：" + (err instanceof Error ? err.message : ""));
+      setSubmitting(false);
+    }
   }
 
   if (questions.length === 0) return <p className="text-sm text-muted-foreground">加载中…</p>;
@@ -155,7 +167,9 @@ export default function ExamPage() {
         {index < questions.length - 1 ? (
           <Button onClick={() => go(index + 1)}>下一题</Button>
         ) : (
-          <Button onClick={submit}>提交试卷</Button>
+          <Button onClick={submit} disabled={submitting}>
+            {submitting ? "正在判分中…" : "提交试卷"}
+          </Button>
         )}
       </div>
     </div>

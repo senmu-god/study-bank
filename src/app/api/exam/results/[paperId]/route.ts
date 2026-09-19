@@ -31,15 +31,13 @@ export async function GET(
       user_answer: string | null;
       is_correct: boolean;
       time_spent_seconds: number;
-      ai_score_percent: number | null;
-      ai_comment: string | null;
     }) => ({
       question: qMap.get(r.question_id),
       userAnswer: r.user_answer,
       isCorrect: r.is_correct,
       timeSpentSeconds: r.time_spent_seconds || 0,
-      aiScorePercent: r.ai_score_percent,
-      aiComment: r.ai_comment,
+      aiScorePercent: null as number | null,
+      aiComment: null as string | null,
     }));
 
     const total = results.length;

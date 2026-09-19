@@ -32,13 +32,22 @@ export default function ResultsPage() {
     results: ResultItem[];
     kpStats: { kpId: string; content: string; total: number; correct: number }[];
   } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/exam/results/${paperId}`)
       .then((r) => r.json())
-      .then(setData);
+      .then((d) => {
+        if (d.error) {
+          setError(d.error);
+        } else {
+          setData(d);
+        }
+      })
+      .catch((e) => setError("加载失败：" + e.message));
   }, [paperId]);
 
+  if (error) return <p className="text-sm text-destructive">加载成绩失败：{error}</p>;
   if (!data) return <p className="text-sm text-muted-foreground">加载中…</p>;
 
   return (

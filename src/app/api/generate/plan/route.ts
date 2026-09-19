@@ -18,9 +18,10 @@ interface KpRow {
   content: string;
   difficulty: Difficulty;
   source_date: string;
-  sections: { name: string } | { name: string }[] | null;
-  chapters: { name: string } | { name: string }[] | null;
-  subjects: { name: string } | { name: string }[] | null;
+  sections: {
+    name: string;
+    chapters: { name: string; subjects: { name: string } | null } | null;
+  } | null;
 }
 
 function nameOf(v: unknown): string {
@@ -38,9 +39,10 @@ export async function POST(req: Request) {
     const sb = getSupabaseAdmin();
     const today = new Date().toISOString().slice(0, 10);
 
-    const { data: kps } = await sb
+    const { data: kps, error: kpErr } = await sb
       .from("knowledge_points")
-      .select("id,content,difficulty,source_date, sections(name), chapters(name), subjects(name)");
+      .select("id,content,difficulty,source_date, sections(name, chapters(name, subjects(name)))");
+    if (kpErr) throw kpErr;
 
     // 每个知识点的已有题目数
     const { data: qRows } = await sb
@@ -70,9 +72,9 @@ export async function POST(req: Request) {
 
     const tasks: GenTask[] = chosen.map((k, i) => ({
       kpId: k.id,
-      subject: nameOf(k.subjects),
-      chapter: nameOf(k.chapters),
-      section: nameOf(k.sections),
+      subject: k.sections?.chapters?.subjects?.name || "",
+      chapter: k.sections?.chapters?.name || "",
+      section: k.sections?.name || "",
       kpContent: k.content,
       questionType: TYPE_CYCLE[i % TYPE_CYCLE.length],
       difficulty: k.difficulty || "medium",

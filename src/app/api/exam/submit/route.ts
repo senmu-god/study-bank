@@ -95,48 +95,41 @@ export async function POST(req: Request) {
       results.push({ question: q, userAnswer, isCorrect, timeSpentSeconds: timeSpent, aiScorePercent: aiScore, aiComment });
 
       // 写入答题记录
-      await sb.from("answer_records").insert({
+      const { error: insErr } = await sb.from("answer_records").insert({
         paper_id: paperId,
         question_id: q.id,
         user_answer: userAnswer,
         is_correct: isCorrect,
         time_spent_seconds: timeSpent,
-        ai_score_percent: aiScore,
-        ai_comment: aiComment,
       });
+      if (insErr) throw new Error(`写入答题记录失败: ${insErr.message}`);
 
-      // 错题本
+      // 错题本：UPSERT 逻辑，避免重复插入
       if (!isCorrect) {
         const { data: existing } = await sb
           .from("wrong_answers")
-          .select("*")
+          .select("id,wrong_count,ease_factor")
           .eq("question_id", q.id)
           .maybeSingle();
+        const newCount = existing ? Number(existing.wrong_count || 1) + 1 : 1;
         const sm2 = onWrong({
           ease_factor: Number(existing?.ease_factor || 2.5),
-          interval_step: Number(existing?.interval_step || 0),
+          interval_step: 0,
         });
-        if (existing) {
-          await sb
-            .from("wrong_answers")
-            .update({
-              wrong_count: Number(existing.wrong_count || 1) + 1,
+        const { error: waErr } = await sb
+          .from("wrong_answers")
+          .upsert(
+            {
+              question_id: q.id,
+              wrong_count: newCount,
               last_wrong_at: new Date().toISOString(),
               mastered: false,
               next_review_at: sm2.next_review_at.toISOString(),
               ease_factor: sm2.ease_factor,
-            })
-            .eq("id", existing.id);
-        } else {
-          await sb.from("wrong_answers").insert({
-            question_id: q.id,
-            wrong_count: 1,
-            last_wrong_at: new Date().toISOString(),
-            mastered: false,
-            next_review_at: sm2.next_review_at.toISOString(),
-            ease_factor: sm2.ease_factor,
-          });
-        }
+            },
+            { onConflict: "question_id" }
+          );
+        if (waErr) throw new Error(`写入错题本失败: ${waErr.message}`);
       }
     }
 
