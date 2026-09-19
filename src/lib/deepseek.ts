@@ -44,6 +44,8 @@ function buildPrompt(params: {
       "【判断题】题目必须是一句完整的陈述句（不要以问号结尾，绝不能出现\"哪一项\"\"以下哪个\"\"哪一个正确\"等选择题措辞），让学生判断这句话是对还是错。correct_answer 必须严格为 \"对\" 或 \"错\"，绝不能是字母 A/B/C/D。options 必须为空数组 []。",
     short_answer:
       "【简答题】题目为一个开放式问题，correct_answer 为参考答案要点文本。options 必须为空数组 []。",
+    design:
+      "【应用设计题】题目为一个需综合应用知识完成的设计/操作/分析任务（如设计一个表格排版方案、给出系统配置步骤、分析网络故障排查流程），correct_answer 为参考答案要点文本，需分步骤列出。options 必须为空数组 []。",
   };
 
   const typeFormat: Record<QuestionType, string> = {
@@ -83,6 +85,14 @@ function buildPrompt(params: {
   "question_text": "开放式问题",
   "options": [],
   "correct_answer": "参考答案要点",
+  "explanation": "详细解析...",
+  "difficulty": "medium",
+  "difficulty_score": 0.50
+}`,
+    design: `{
+  "question_text": "应用设计任务",
+  "options": [],
+  "correct_answer": "分步骤的参考答案要点",
   "explanation": "详细解析...",
   "difficulty": "medium",
   "difficulty_score": 0.50
@@ -188,7 +198,7 @@ function normalizeByType(q: GeneratedQuestion, type: QuestionType): GeneratedQue
     }
     q.options = [];
   }
-  if (type === "fill_blank" || type === "short_answer") {
+  if (type === "fill_blank" || type === "short_answer" || type === "design") {
     q.options = [];
   }
   if (type === "single_choice" || type === "multiple_choice") {

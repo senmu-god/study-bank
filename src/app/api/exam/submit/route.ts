@@ -45,16 +45,17 @@ export async function POST(req: Request) {
 
     const sb = getSupabaseAdmin();
 
-    // 取整卷题目（含答案与解析）
+    // 取整卷题目（含答案与解析、每题分值）
     const { data: pq } = await sb
       .from("paper_questions")
-      .select("sort_order, questions(*)")
+      .select("sort_order, points, questions(*)")
       .eq("paper_id", paperId)
       .order("sort_order");
 
-    const questions = ((pq as unknown as Array<{ questions: Question | null }> | undefined) || [])
-      .map((r) => r.questions)
-      .filter(Boolean) as Question[];
+    const rows = ((pq as unknown as Array<{ questions: Question | null; points: number | null }> | undefined) || [])
+      .filter((r) => r.questions);
+    const questions = rows.map((r) => r.questions!) as Question[];
+    const pointOf = (qid: string) => rows.find((r) => r.questions?.id === qid)?.points ?? 1;
 
     const answerMap = new Map(answers.map((a) => [a.questionId, a]));
 
@@ -65,20 +66,27 @@ export async function POST(req: Request) {
       timeSpentSeconds: number;
       aiScorePercent: number | null;
       aiComment: string | null;
+      points: number;
+      earned: number;
     }> = [];
 
     let correctCount = 0;
+    let totalScore = 0;
+    let fullScore = 0;
 
     for (const q of questions) {
       const input = answerMap.get(q.id);
       const userAnswer = input?.userAnswer ?? null;
       const timeSpent = input?.timeSpentSeconds ?? 0;
+      const points = pointOf(q.id);
+      fullScore += points;
 
       let isCorrect = false;
       let aiScore: number | null = null;
       let aiComment: string | null = null;
+      let earned = 0;
 
-      if (q.question_type === "short_answer") {
+      if (q.question_type === "short_answer" || q.question_type === "design") {
         const g = await gradeShortAnswer({
           questionText: q.question_text,
           correctAnswer: q.correct_answer,
@@ -87,12 +95,15 @@ export async function POST(req: Request) {
         aiScore = g.score;
         aiComment = g.comment;
         isCorrect = g.score >= 60;
+        earned = Math.round((points * g.score) / 100);
       } else {
         isCorrect = gradeDeterministic(q, userAnswer);
+        earned = isCorrect ? points : 0;
       }
       if (isCorrect) correctCount++;
+      totalScore += earned;
 
-      results.push({ question: q, userAnswer, isCorrect, timeSpentSeconds: timeSpent, aiScorePercent: aiScore, aiComment });
+      results.push({ question: q, userAnswer, isCorrect, timeSpentSeconds: timeSpent, aiScorePercent: aiScore, aiComment, points, earned });
 
       // 写入答题记录
       const { error: insErr } = await sb.from("answer_records").insert({
@@ -155,7 +166,7 @@ export async function POST(req: Request) {
     const isMock = paperRow?.paper_type === "mock";
 
     const total = questions.length;
-    const accuracy = total ? Math.round((correctCount / total) * 100) : 0;
+    const accuracy = fullScore ? Math.round((totalScore / fullScore) * 100) : 0;
     const totalTime = results.reduce((s, r) => s + (r.timeSpentSeconds || 0), 0);
 
     // 模考：生成分析记录
@@ -168,7 +179,7 @@ export async function POST(req: Request) {
         .from("mock_exam_analyses")
         .insert({
           paper_id: paperId,
-          total_score: correctCount,
+          total_score: totalScore,
           correct_rate: accuracy,
           time_spent: totalTime,
           weak_points: weakPoints,
@@ -179,7 +190,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({
-      summary: { total, correct: correctCount, accuracy, timeSpent: totalTime },
+      summary: { total, correct: correctCount, accuracy, score: totalScore, fullScore, timeSpent: totalTime },
       results,
       kpStats: [...kpStatMap.values()],
       analysis,

@@ -8,7 +8,7 @@ import { Input, Select } from "@/components/ui/controls";
 import type { SubjectNode, QuestionType } from "@/lib/types";
 import { QUESTION_TYPE_LABELS } from "@/lib/types";
 
-const TYPE_KEYS: QuestionType[] = ["single_choice", "multiple_choice", "fill_blank", "true_false", "short_answer"];
+const TYPE_KEYS: QuestionType[] = ["single_choice", "multiple_choice", "fill_blank", "true_false", "short_answer", "design"];
 
 function highlight(text: string, kw: string) {
   if (!kw) return text;
@@ -31,7 +31,7 @@ export default function CreatePaperPage() {
   const [total, setTotal] = useState(24);
   const [difficulty, setDifficulty] = useState("mixed");
   const [ratios, setRatios] = useState<Record<QuestionType, number>>({
-    single_choice: 40, multiple_choice: 10, fill_blank: 20, true_false: 15, short_answer: 15,
+    single_choice: 40, multiple_choice: 10, fill_blank: 20, true_false: 15, short_answer: 15, design: 0,
   });
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");

@@ -11,6 +11,7 @@ export interface TypeRatio {
   fill_blank: number;
   true_false: number;
   short_answer: number;
+  design: number;
 }
 
 const TYPE_ORDER: QuestionType[] = [
@@ -19,6 +20,7 @@ const TYPE_ORDER: QuestionType[] = [
   "fill_blank",
   "true_false",
   "short_answer",
+  "design",
 ];
 
 /** 四川专升本难度比例：容易30 较易30 中等30 较难10 */
@@ -80,6 +82,7 @@ export function selectQuestionsForPaper(params: {
     fill_blank: 0,
     true_false: 0,
     short_answer: 0,
+    design: 0,
   };
   TYPE_ORDER.forEach((t, i) => (typeQuota[t] = typeTargetsArr[i]));
 

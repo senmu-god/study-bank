@@ -26,12 +26,14 @@ export default function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  async function generateMock() {
+  async function generateMock(variant: string = "") {
     setGeneratingMock(true);
-    const r = await fetch("/api/papers/mock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+    const body: Record<string, string> = variant ? { variant } : {};
+    const r = await fetch("/api/papers/mock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const d = await r.json();
     setGeneratingMock(false);
     if (d.error) { alert("生成失败：" + d.error); return; }
+    if (d.gaps && d.gaps.length > 0) alert("部分题型题量不足：" + d.gaps.join("、"));
     window.location.href = `/exam/${d.paperId}`;
   }
 
@@ -71,8 +73,11 @@ export default function DashboardPage() {
             <CardTitle>快捷操作</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-2">
-            <Button className="w-full justify-start" onClick={generateMock} disabled={generatingMock}>
+            <Button className="w-full justify-start" onClick={() => generateMock("")} disabled={generatingMock}>
               {generatingMock ? "正在生成…" : "生成模考试卷（24题）"}
+            </Button>
+            <Button className="w-full justify-start" onClick={() => generateMock("computer150")} disabled={generatingMock}>
+              {generatingMock ? "正在生成…" : "生成计算机基础模考（150分）"}
             </Button>
             <Link href="/knowledge/import"><Button className="w-full justify-start" variant="outline">批量导入知识点</Button></Link>
             <Link href="/generate"><Button className="w-full justify-start" variant="outline">生成今日题目</Button></Link>

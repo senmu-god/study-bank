@@ -22,13 +22,15 @@ interface ResultItem {
   timeSpentSeconds: number;
   aiScorePercent: number | null;
   aiComment: string | null;
+  points: number;
+  earned: number;
 }
 
 export default function ResultsPage() {
   const params = useParams();
   const paperId = params.paperId as string;
   const [data, setData] = useState<{
-    summary: { total: number; correct: number; accuracy: number };
+    summary: { total: number; correct: number; accuracy: number; score: number; fullScore: number };
     results: ResultItem[];
     kpStats: { kpId: string; content: string; total: number; correct: number }[];
   } | null>(null);
@@ -60,8 +62,14 @@ export default function ResultsPage() {
       <Card>
         <CardContent className="flex items-center gap-8 p-6">
           <div>
-            <div className="text-4xl font-bold text-primary">{data.summary.accuracy}%</div>
-            <div className="text-sm text-muted-foreground">正确率</div>
+            <div className="text-4xl font-bold text-primary">{data.summary.score}
+              <span className="text-lg text-muted-foreground"> / {data.summary.fullScore} 分</span>
+            </div>
+            <div className="text-sm text-muted-foreground">总分</div>
+          </div>
+          <div>
+            <div className="text-2xl font-bold">{data.summary.accuracy}%</div>
+            <div className="text-sm text-muted-foreground">得分率</div>
           </div>
           <div>
             <div className="text-2xl font-bold">{data.summary.correct} / {data.summary.total}</div>
@@ -104,6 +112,7 @@ export default function ResultsPage() {
                   {r.isCorrect ? "正确" : "错误"}
                 </Badge>
                 <Badge variant="secondary">{QUESTION_TYPE_LABELS[r.question.question_type as keyof typeof QUESTION_TYPE_LABELS]}</Badge>
+                <span className="text-xs text-muted-foreground">{r.earned}/{r.points}分</span>
                 <span className="text-xs text-muted-foreground">耗时 {r.timeSpentSeconds}s</span>
               </div>
               <p className="font-medium">{i + 1}. {r.question.question_text}</p>

@@ -6,7 +6,8 @@ export type QuestionType =
   | "multiple_choice"
   | "fill_blank"
   | "true_false"
-  | "short_answer";
+  | "short_answer"
+  | "design";
 
 export interface Option {
   label: string;
@@ -84,6 +85,7 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   fill_blank: "填空题",
   true_false: "判断题",
   short_answer: "简答题",
+  design: "应用设计题",
 };
 
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {

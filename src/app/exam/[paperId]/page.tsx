@@ -182,15 +182,15 @@ export default function ExamPage() {
             </div>
           )}
 
-          {(q.question_type === "fill_blank" || q.question_type === "short_answer") && (
+          {(q.question_type === "fill_blank" || q.question_type === "short_answer" || q.question_type === "design") && (
             <>
               <Textarea
-                rows={q.question_type === "short_answer" ? 6 : 2}
+                rows={q.question_type === "fill_blank" ? 2 : 6}
                 value={answers[q.id] || ""}
                 onChange={(e) => setAnswer(q.id, e.target.value)}
                 placeholder={q.question_type === "fill_blank" ? "请输入答案" : "请作答（可上传手写/截图图片辅助判分）"}
               />
-              {q.question_type === "short_answer" && (
+              {(q.question_type === "short_answer" || q.question_type === "design") && (
                 <div className="space-y-2">
                   {images[q.id] ? (
                     <div className="flex items-center gap-3">
