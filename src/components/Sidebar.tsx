@@ -10,6 +10,7 @@ import {
   FilePlus2,
   Files,
   BookmarkX,
+  Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ const NAV = [
   { href: "/knowledge", label: "知识点", icon: BookOpen },
   { href: "/knowledge/import", label: "批量导入", icon: Upload },
   { href: "/generate", label: "AI 生成题目", icon: Sparkles },
+  { href: "/questions", label: "题库", icon: Database },
   { href: "/create-paper", label: "组卷", icon: FilePlus2 },
   { href: "/papers", label: "我的试卷", icon: Files },
   { href: "/wrong-answers", label: "错题本", icon: BookmarkX },
