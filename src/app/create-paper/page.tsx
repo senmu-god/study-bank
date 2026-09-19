@@ -36,7 +36,6 @@ export default function CreatePaperPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
-  // 过滤状态
   const [subjectFilter, setSubjectFilter] = useState<Set<string>>(new Set());
   const [kw, setKw] = useState("");
   const [debouncedKw, setDebouncedKw] = useState("");
@@ -70,7 +69,6 @@ export default function CreatePaperPage() {
     setPercent(p);
   }
 
-  // 双条件过滤
   const filtered = useMemo(() => {
     const kwLower = debouncedKw.toLowerCase();
     return tree
@@ -105,7 +103,7 @@ export default function CreatePaperPage() {
 
   const visibleKpIds = useMemo(() => {
     const ids: string[] = [];
-    for (const s of filtered) for (const c of s.chapters) for (const sec of c.sections) for (const kp of sec.kps) ids.push(kp.id);
+    for (const s of filtered) if (s) for (const c of s.chapters) for (const sec of c.sections) for (const kp of sec.kps) ids.push(kp.id);
     return ids;
   }, [filtered]);
 
@@ -142,7 +140,6 @@ export default function CreatePaperPage() {
         <Card>
           <CardHeader><CardTitle>选择知识点（已选 {selected.size} 个）</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            {/* 科目 Tabs */}
             <div className="flex flex-wrap gap-1">
               {tree.map((s) => {
                 const active = subjectFilter.size === 0 || subjectFilter.has(s.id);
@@ -152,13 +149,9 @@ export default function CreatePaperPage() {
                     onClick={() => {
                       setSubjectFilter((prev) => {
                         const next = new Set(prev);
-                        if (next.size === 0) {
-                          next.add(s.id);
-                        } else if (next.has(s.id)) {
-                          next.delete(s.id);
-                        } else {
-                          next.add(s.id);
-                        }
+                        if (next.size === 0) next.add(s.id);
+                        else if (next.has(s.id)) next.delete(s.id);
+                        else next.add(s.id);
                         return next;
                       });
                     }}
@@ -177,17 +170,15 @@ export default function CreatePaperPage() {
               )}
             </div>
 
-            {/* 搜索 */}
             <div className="flex gap-2">
               <Input value={kw} onChange={(e) => setKw(e.target.value)} placeholder="搜索知识点关键词" className="flex-1" />
               <Button size="sm" variant="outline" onClick={() => toggleAllKps(visibleKpIds, true)}>全选结果</Button>
               <Button size="sm" variant="outline" onClick={() => toggleAllKps(visibleKpIds, false)}>清空结果</Button>
             </div>
 
-            {/* 树形 */}
             <div className="max-h-[50vh] space-y-3 overflow-auto text-sm">
               {filtered.map((s) =>
-                s.chapters.map((c) =>
+                s && s.chapters.map((c) =>
                   c.sections.map((sec) => (
                     <div key={sec.id} className="ml-2">
                       <div className="text-muted-foreground">

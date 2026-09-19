@@ -103,7 +103,7 @@ export default function KnowledgeTreeSelector({ tree, checked, onChange }: Props
   // 当前过滤后可见的 kp 总数
   const visibleKpIds = useMemo(() => {
     const ids: string[] = [];
-    for (const s of filtered) for (const c of s.chapters) for (const sec of c.sections) for (const kp of sec.kps) ids.push(kp.id);
+    for (const s of filtered) if (s) for (const c of s.chapters) for (const sec of c.sections) for (const kp of sec.kps) ids.push(kp.id);
     return ids;
   }, [filtered]);
 
@@ -162,6 +162,7 @@ export default function KnowledgeTreeSelector({ tree, checked, onChange }: Props
       {/* 树形（自动展开过滤后所有节点） */}
       <div className="max-h-80 overflow-auto space-y-2 text-sm">
         {filtered.map((s) => {
+          if (!s) return null;
           const sIds = s.chapters.flatMap((c) => c.sections.flatMap((sec) => sec.kps.map((k) => k.id)));
           const sChecked = sIds.length > 0 && sIds.every((id) => checked.has(id));
           return (
