@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/controls";
 import { QUESTION_TYPE_LABELS } from "@/lib/types";
+import MathText from "@/components/MathText";
 
 interface ResultItem {
   question: {
@@ -115,11 +116,11 @@ export default function ResultsPage() {
                 <span className="text-xs text-muted-foreground">{r.earned}/{r.points}分</span>
                 <span className="text-xs text-muted-foreground">耗时 {r.timeSpentSeconds}s</span>
               </div>
-              <p className="font-medium">{i + 1}. {r.question.question_text}</p>
+              <p className="font-medium">{i + 1}. <MathText content={r.question.question_text} /></p>
               {r.question.options && (
                 <ul className="ml-4 space-y-1 text-muted-foreground">
                   {r.question.options.map((o) => (
-                    <li key={o.label}>{o.label}. {o.text}</li>
+                    <li key={o.label}>{o.label}. <MathText content={o.text} /></li>
                   ))}
                 </ul>
               )}
@@ -139,7 +140,7 @@ export default function ResultsPage() {
               {r.aiComment && <div className="text-xs text-muted-foreground">评语：{r.aiComment}</div>}
               <div className="rounded-md bg-secondary p-2 text-xs">
                 <span className="font-medium">解析：</span>
-                {r.question.explanation}
+                <MathText content={r.question.explanation} />
               </div>
             </CardContent>
           </Card>

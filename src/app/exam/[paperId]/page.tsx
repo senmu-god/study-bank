@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/controls";
 import { Badge } from "@/components/ui/controls";
 import { QUESTION_TYPE_LABELS } from "@/lib/types";
 import type { QuestionType } from "@/lib/types";
+import MathText from "@/components/MathText";
 
 interface ExamQuestion {
   id: string;
@@ -132,7 +133,7 @@ export default function ExamPage() {
           <div className="flex items-center gap-2">
             <Badge>{QUESTION_TYPE_LABELS[q.question_type]}</Badge>
           </div>
-          <p className="text-base leading-relaxed">{q.question_text}</p>
+          <MathText content={q.question_text} />
 
           {(q.question_type === "single_choice" || q.question_type === "multiple_choice") && (
             <div className="space-y-2">
@@ -158,7 +159,7 @@ export default function ExamPage() {
                     }}
                   />
                   <span className="font-medium">{opt.label}.</span>
-                  <span>{opt.text}</span>
+                  <span><MathText content={opt.text} /></span>
                 </label>
               ))}
             </div>

@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/controls";
 import { formatDateTime } from "@/lib/utils";
+import MathText from "@/components/MathText";
 
 interface WrongItem {
   id: string;
@@ -79,9 +80,9 @@ export default function WrongAnswersPage() {
                     </span>
                   )}
                 </div>
-                <p className="font-medium">{w.questions?.question_text}</p>
+                <MathText content={w.questions?.question_text || ""} />
                 <div className="text-xs text-muted-foreground">
-                  正确答案：{w.questions?.correct_answer}
+                  正确答案：<MathText content={w.questions?.correct_answer || ""} />
                 </div>
                 <Button size="sm" variant="outline" onClick={() => markMastered(w.id, !w.mastered)}>
                   {w.mastered ? "取消掌握标记" : "标记为已掌握"}

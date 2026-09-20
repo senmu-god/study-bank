@@ -8,6 +8,7 @@ import { Badge, Input, Textarea, Select } from "@/components/ui/controls";
 import type { Question, QuestionType, Difficulty } from "@/lib/types";
 import { QUESTION_TYPE_LABELS, DIFFICULTY_LABELS, DIFFICULTY_COLORS } from "@/lib/types";
 import { formatDateTime, cn } from "@/lib/utils";
+import MathText from "@/components/MathText";
 
 function DiffBadge({ difficulty }: { difficulty: Difficulty }) {
   return (
@@ -168,7 +169,7 @@ export default function QuestionsPage() {
                 />
                 <Badge variant="secondary">{QUESTION_TYPE_LABELS[q.question_type]}</Badge>
                 <DiffBadge difficulty={q.difficulty} />
-                <span className="flex-1 line-clamp-2">{q.question_text}</span>
+                <span className="flex-1 line-clamp-2"><MathText content={q.question_text} /></span>
                 <Eye size={14} className="text-muted-foreground shrink-0 mt-1" />
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
@@ -203,18 +204,18 @@ export default function QuestionsPage() {
                   <Badge variant="secondary">{QUESTION_TYPE_LABELS[detail.question_type]}</Badge>
                   <DiffBadge difficulty={detail.difficulty} />
                 </div>
-                <p className="whitespace-pre-wrap font-medium">{detail.question_text}</p>
+                <MathText content={detail.question_text} />
                 {detail.options && detail.options.length > 0 && (
                   <div className="space-y-1">
                     {detail.options.map((opt) => (
                       <div key={opt.label} className={cn("p-2 rounded", opt.label === detail.correct_answer && "bg-green-50 dark:bg-green-950/30")}>
-                        <span className="font-medium">{opt.label}.</span> {opt.text}
+                        <span className="font-medium">{opt.label}.</span> <MathText content={opt.text} />
                       </div>
                     ))}
                   </div>
                 )}
                 <div><span className="text-muted-foreground">正确答案：</span><span className="font-medium text-green-600">{detail.correct_answer}</span></div>
-                <div><span className="text-muted-foreground">解析：</span><span className="whitespace-pre-wrap">{detail.explanation}</span></div>
+                <div><span className="text-muted-foreground">解析：</span><MathText content={detail.explanation} /></div>
                 <div className="text-xs text-muted-foreground">知识点：{detail.knowledge_points?.content}</div>
                 <Button onClick={() => setEditing(true)}><Pencil size={14} /> 编辑</Button>
               </div>

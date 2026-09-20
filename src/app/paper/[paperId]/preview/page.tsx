@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/controls";
 import type { Question } from "@/lib/types";
 import { QUESTION_TYPE_LABELS } from "@/lib/types";
+import MathText from "@/components/MathText";
 import { exportWord } from "@/lib/wordExport";
 
 type Mode = "blank" | "answer" | "explain";
@@ -59,20 +60,20 @@ export default function PaperPreviewPage() {
                 <div className="text-sm text-muted-foreground">
                   {QUESTION_TYPE_LABELS[q.question_type]}
                 </div>
-                <p className="mt-1 font-medium">{i + 1}. {q.question_text}</p>
+                <p className="mt-1 font-medium">{i + 1}. <MathText content={q.question_text} /></p>
                 {q.options && (
                   <div className="mt-2 space-y-1 pl-4 text-sm text-muted-foreground">
-                    {q.options.map((o) => <div key={o.label}>{o.label}. {o.text}</div>)}
+                    {q.options.map((o) => <div key={o.label}>{o.label}. <MathText content={o.text} /></div>)}
                   </div>
                 )}
                 {(mode === "answer" || mode === "explain") && (
                   <div className="mt-2 text-sm">
-                    <span className="font-medium text-primary">答案：</span>{q.correct_answer}
+                    <span className="font-medium text-primary">答案：</span><MathText content={q.correct_answer} />
                   </div>
                 )}
                 {mode === "explain" && (
                   <div className="mt-1 text-sm text-muted-foreground">
-                    <span className="font-medium">解析：</span>{q.explanation}
+                    <span className="font-medium">解析：</span><MathText content={q.explanation} />
                   </div>
                 )}
               </div>
