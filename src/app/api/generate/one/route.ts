@@ -23,9 +23,10 @@ export async function POST(req: Request) {
       .from("questions")
       .select("question_text")
       .eq("knowledge_point_id", task.kpId)
-      .limit(10);
+      .order("generated_at", { ascending: false })
+      .limit(50);
     const existingSummary = (existing || [])
-      .map((q, i) => `${i + 1}. ${q.question_text.slice(0, 50)}`)
+      .map((q, i) => `${i + 1}. ${q.question_text.slice(0, 80)}`)
       .join("；");
 
     const generated = await generateOneQuestion({

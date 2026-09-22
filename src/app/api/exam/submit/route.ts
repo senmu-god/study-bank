@@ -16,20 +16,38 @@ function normalize(v: string): string {
   return (v || "").trim().replace(/\s+/g, "").toLowerCase();
 }
 
+/** 判断题答案归一化：把"正确/错误/T/F/true/false/对/错"统一成对/错 */
+function normalizeTf(v: string): string {
+  const s = (v || "").trim().toLowerCase();
+  if (/对|正确|true|^t$|^√$|^y$|^yes$/.test(s)) return "对";
+  if (/错|错误|false|^f$|^×$|^n$|^no$/.test(s)) return "错";
+  return s;
+}
+
+/** 填空题答案归一化：去空格、去全角标点、转小写 */
+function normalizeBlank(v: string): string {
+  return (v || "")
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(/[，。、；：！？""''（）【】]/g, "")
+    .toLowerCase();
+}
+
 function gradeDeterministic(q: Question, userAnswer: string | null): boolean {
   const ua = (userAnswer || "").trim();
   const correct = q.correct_answer;
   switch (q.question_type) {
     case "single_choice":
-    case "true_false":
       return normalize(ua) === normalize(correct);
+    case "true_false":
+      return normalizeTf(ua) === normalizeTf(correct);
     case "multiple_choice": {
       const a = ua.split("").filter((c) => /[a-d]/i.test(c)).sort().join("").toLowerCase();
       const b = correct.split("").filter((c) => /[a-d]/i.test(c)).sort().join("").toLowerCase();
       return a.length > 0 && a === b;
     }
     case "fill_blank":
-      return normalize(ua) === normalize(correct);
+      return normalizeBlank(ua) === normalizeBlank(correct);
     default:
       return false;
   }

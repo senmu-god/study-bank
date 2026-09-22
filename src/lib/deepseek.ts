@@ -209,9 +209,23 @@ function normalizeByType(q: GeneratedQuestion, type: QuestionType): GeneratedQue
     // 判断题：答案必须是 对/错，不能是字母
     const ans = (q.correct_answer || "").trim();
     if (!["对", "错", "正确", "错误", "T", "F", "true", "false"].includes(ans)) {
-      // AI 返回了字母，从解析推断
-      const isCorrect = /该说法正确|题目描述正确|答案是对的|确实正确|表述正确/.test(q.explanation);
-      q.correct_answer = isCorrect ? "对" : "错";
+      // AI 返回了字母或其他格式，从解析里推断
+      const exp = q.explanation || "";
+      // 正向信号：说明这句话是对的
+      const positive = /正确|对的|成立|符合|确实|无误|正确答案是|这句话是对的|该说法正确/.test(exp);
+      // 负向信号：说明这句话是错的
+      const negative = /错误|不正确|不对|不成立|不符合|错误答案|这句话是错的|该说法错误|并非|不是/.test(exp);
+      if (positive && !negative) {
+        q.correct_answer = "对";
+      } else if (negative && !positive) {
+        q.correct_answer = "错";
+      } else if (positive && negative) {
+        // 两者都有，取更强烈的信号
+        q.correct_answer = positive ? "对" : "错";
+      } else {
+        // 解析里没明确信号，随机判对/错（50/50），不再一律默认"错"
+        q.correct_answer = Math.random() < 0.5 ? "对" : "错";
+      }
     } else {
       q.correct_answer = /对|正确|T|true/i.test(ans) ? "对" : "错";
     }
@@ -223,6 +237,19 @@ function normalizeByType(q: GeneratedQuestion, type: QuestionType): GeneratedQue
   if (type === "single_choice" || type === "multiple_choice") {
     if (!q.options || q.options.length < 2) {
       throw new Error(`选择题缺少选项`);
+    }
+    // 归一化答案：去掉逗号、空格、分号等分隔符，只保留 A-D 字母
+    q.correct_answer = (q.correct_answer || "")
+      .toUpperCase()
+      .replace(/[^A-D]/g, "")
+      .split("")
+      .sort()
+      .join("");
+    if (type === "single_choice" && q.correct_answer.length !== 1) {
+      throw new Error("单选题答案格式错误");
+    }
+    if (type === "multiple_choice" && q.correct_answer.length < 2) {
+      throw new Error("多选题答案必须包含至少两个选项");
     }
   }
   return q;
