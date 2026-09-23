@@ -5,18 +5,16 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 
 /**
- * remark-math 只认 $...$ / $$...$$。
- * AI 生成的公式有时用 \(...\)、\[...\] 或普通 (...) 包裹，这里统一转成 $。
- * 注意 markdown 里 \( 会被当转义括号，必须用 $。
+ * remark-math 只认 $...$。
+ * AI 经常混用 \(...\)、\[...\]、普通 (...)、$$ 等，这里统一清洗。
  */
 function normalizeMath(text: string): string {
   let s = text;
-  // 1) \( ... \) -> $ ... $  （跨行不处理，按字符扫描）
+  // 1) \( ... \) -> $ ... $
   s = s.replace(/\\\(([\s\S]*?)\\\)/g, (_, inner) => `$${inner.trim()}$`);
-  // 2) \[ ... \] -> $$ ... $$
-  s = s.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => `$$${inner.trim()}$$`);
+  // 2) \[ ... \] -> $ ... $  （统一用行内，不用独立公式）
+  s = s.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => `$${inner.trim()}$`);
   // 3) 普通 ( ... ) 内含 \命令 的，转成 $ ... $
-  //    用扫描器处理嵌套括号和花括号
   const chars = Array.from(s);
   const out: string[] = [];
   let i = 0;
@@ -47,7 +45,18 @@ function normalizeMath(text: string): string {
     out.push(ch);
     i++;
   }
-  return out.join("");
+  s = out.join("");
+  // 4) AI 经常把 $ 写成 $$（多打一个），统一折叠成单个 $
+  s = s.replace(/\$\$/g, "$");
+  // 5) 如果 $ 总数是奇数，说明有未闭合的公式，去掉最后一个 $（避免残留字面量）
+  const dollarCount = (s.match(/\$/g) || []).length;
+  if (dollarCount % 2 !== 0) {
+    const lastIdx = s.lastIndexOf("$");
+    if (lastIdx >= 0) {
+      s = s.slice(0, lastIdx) + s.slice(lastIdx + 1);
+    }
+  }
+  return s;
 }
 
 /** 渲染含 LaTeX 数学公式的文本 */

@@ -183,7 +183,7 @@ function buildPrompt(params: {
 【数学公式书写规范（强制）】
 - 行内公式必须用反斜杠圆括号包裹：\\( 公式 \\)，例如：计算极限 \\(\\lim_{x\\to 0}\\frac{\\sin x}{x}\\)。
 - 独立公式必须用反斜杠方括号包裹：\\[ 公式 \\]。
-- 严禁用普通圆括号 ( ) 或普通方括号 [ ] 包裹公式，严禁用 $ 符号。
+- 严禁用普通圆括号 ( ) 或普通方括号 [ ] 包裹公式，严禁用 $ 符号，严禁连续输出两个 $（即不要输出 $\$）。
 - 只用 KaTeX 兼容的常用命令（如 \\frac、\\sqrt、\\int、\\sum、x^2、x_n、\\sin、\\cos、\\tan、\\ln、\\log、\\lim、\\to），避免 \\mathbb、\\mathcal 等生僻宏；实数集直接写普通文本 R。
 
 5. 必须返回严格的 JSON 格式，不要包含 markdown 标记，不要用代码块包裹。
@@ -211,23 +211,29 @@ function normalizeByType(q: GeneratedQuestion, type: QuestionType): GeneratedQue
     if (!["对", "错", "正确", "错误", "T", "F", "true", "false"].includes(ans)) {
       // AI 返回了字母或其他格式，从解析里推断
       const exp = q.explanation || "";
-      // 正向信号：说明这句话是对的
-      const positive = /正确|对的|成立|符合|确实|无误|正确答案是|这句话是对的|该说法正确/.test(exp);
-      // 负向信号：说明这句话是错的
-      const negative = /错误|不正确|不对|不成立|不符合|错误答案|这句话是错的|该说法错误|并非|不是/.test(exp);
-      if (positive && !negative) {
-        q.correct_answer = "对";
-      } else if (negative && !positive) {
+      // 注意判断顺序：否定词几乎都包含肯定词的子串 ——
+      // "不正确"含"正确"、"不成立"含"成立"、"不符合"含"符合"、"不对"含"对"。
+      // 所以**必须先判否定**，否则先命中肯定分支会把答案判反
+      // （这正是上一版"只要解析出现否定词就一律判对"的根因）。
+      const negative =
+        /不正确|不对|不成立|不符合|并非|不是|有误|错误|该说法错误|这句话是错的|错误答案|判断为错|^错$|答案.{0,4}错/.test(
+          exp
+        );
+      const positive =
+        /正确|对的|成立|符合|确实|无误|该说法正确|这句话是对的|答案是对的|判断为对|^对$|答案.{0,4}对/.test(
+          exp
+        );
+      if (negative) {
         q.correct_answer = "错";
-      } else if (positive && negative) {
-        // 两者都有，取更强烈的信号
-        q.correct_answer = positive ? "对" : "错";
+      } else if (positive) {
+        q.correct_answer = "对";
       } else {
-        // 解析里没明确信号，随机判对/错（50/50），不再一律默认"错"
-        q.correct_answer = Math.random() < 0.5 ? "对" : "错";
+        // 解析里没有任何信号：猜不如重出。
+        // 抛错后由上层重试（最多 3 次）换一次生成，正确率远高于 50% 的随机。
+        throw new Error("判断题答案无法从解析推断");
       }
     } else {
-      q.correct_answer = /对|正确|T|true/i.test(ans) ? "对" : "错";
+      q.correct_answer = /^(对|正确|t|true)$/i.test(ans) ? "对" : "错";
     }
     q.options = [];
   }

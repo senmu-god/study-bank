@@ -19,17 +19,24 @@ function normalize(v: string): string {
 /** 判断题答案归一化：把"正确/错误/T/F/true/false/对/错"统一成对/错 */
 function normalizeTf(v: string): string {
   const s = (v || "").trim().toLowerCase();
-  if (/对|正确|true|^t$|^√$|^y$|^yes$/.test(s)) return "对";
-  if (/错|错误|false|^f$|^×$|^n$|^no$/.test(s)) return "错";
+  // 必须**先判否定**且用完全匹配：否定词基本都含肯定词的子串
+  // （"不对"含"对"、"不正确"含"正确"、"没错"含"错"），
+  // 用子串匹配会把用户的答案解释成相反的意思。
+  if (/^(不对|不正确|错误|错的|错|false|f|×|x|n|no|否)$/.test(s)) return "错";
+  if (/^(对|正确|对的|没错|true|t|√|y|yes|是)$/.test(s)) return "对";
   return s;
 }
 
-/** 填空题答案归一化：去空格、去全角标点、转小写 */
+/**
+ * 填空题答案归一化：去空格、去中英文标点、转小写。
+ * 只去掉**分隔符类**标点；`.` `-` `/` 保留，
+ * 否则 3.14 会变成 314、example.com 会变成 examplecom。
+ */
 function normalizeBlank(v: string): string {
   return (v || "")
     .trim()
     .replace(/\s+/g, "")
-    .replace(/[，。、；：！？""''（）【】]/g, "")
+    .replace(/[,;:!?，。、；：！？""''（）【】()[\]{}]/g, "")
     .toLowerCase();
 }
 
