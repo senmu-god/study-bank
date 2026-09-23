@@ -214,7 +214,7 @@ export default function QuestionsPage() {
                     ))}
                   </div>
                 )}
-                <div><span className="text-muted-foreground">正确答案：</span><span className="font-medium text-green-600">{detail.correct_answer}</span></div>
+                <div><span className="text-muted-foreground">正确答案：</span><span className="font-medium text-green-600"><MathText content={detail.correct_answer} /></span></div>
                 <div><span className="text-muted-foreground">解析：</span><MathText content={detail.explanation} /></div>
                 <div className="text-xs text-muted-foreground">知识点：{detail.knowledge_points?.content}</div>
                 <Button onClick={() => setEditing(true)}><Pencil size={14} /> 编辑</Button>

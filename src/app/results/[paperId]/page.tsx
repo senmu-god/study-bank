@@ -135,7 +135,7 @@ export default function ResultsPage() {
               </div>
               <div className="text-xs">
                 <span className="text-muted-foreground">正确答案：</span>
-                {r.question.correct_answer}
+                <MathText content={r.question.correct_answer} />
               </div>
               {r.aiComment && <div className="text-xs text-muted-foreground">评语：{r.aiComment}</div>}
               <div className="rounded-md bg-secondary p-2 text-xs">
