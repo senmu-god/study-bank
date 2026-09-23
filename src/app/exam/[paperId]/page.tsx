@@ -27,6 +27,8 @@ export default function ExamPage() {
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [images, setImages] = useState<Record<string, string>>({});
+  const [ocrMeta, setOcrMeta] = useState<Record<string, { imageUrl: string; ocrText: string }>>({});
+  const [ocrLoading, setOcrLoading] = useState<Record<string, boolean>>({});
   const [timeSpent, setTimeSpent] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const enterTime = useRef(Date.now());
@@ -57,10 +59,34 @@ export default function ExamPage() {
     setAnswers((a) => ({ ...a, [qid]: val }));
   }
 
-  function handleImageUpload(qid: string, file: File) {
+  async function handleImageUpload(qid: string, file: File) {
     const reader = new FileReader();
-    reader.onload = () => {
-      setImages((prev) => ({ ...prev, [qid]: reader.result as string }));
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      setImages((prev) => ({ ...prev, [qid]: base64 }));
+      setOcrLoading((prev) => ({ ...prev, [qid]: true }));
+      try {
+        const r = await fetch("/api/exam/ocr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: base64 }),
+        });
+        const d = await r.json();
+        if (d.imageUrl) {
+          setOcrMeta((prev) => ({ ...prev, [qid]: { imageUrl: d.imageUrl, ocrText: d.ocrText || "" } }));
+          // 把 OCR 文本合并进答案文本框，用户可再编辑
+          if (d.ocrText) {
+            setAnswers((prev) => ({
+              ...prev,
+              [qid]: prev[qid] ? prev[qid] + "\n" + d.ocrText : d.ocrText,
+            }));
+          }
+        }
+      } catch {
+        // OCR 失败不阻断，图片仍保留
+      } finally {
+        setOcrLoading((prev) => ({ ...prev, [qid]: false }));
+      }
     };
     reader.readAsDataURL(file);
   }
@@ -70,33 +96,14 @@ export default function ExamPage() {
     setSubmitting(true);
     recordTime();
 
-    // 先处理有图片的简答题：调用图片判分接口
-    const imageQids = Object.keys(images).filter((qid) => images[qid]);
-    for (const qid of imageQids) {
-      const q = questions.find((x) => x.id === qid);
-      if (!q) continue;
-      try {
-        await fetch("/api/exam/submit-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            paperId,
-            questionId: qid,
-            imageBase64: images[qid],
-            userAnswer: answers[qid] || "",
-            questionText: q.question_text,
-            correctAnswer: "",
-          }),
-        });
-      } catch {}
-    }
-
     const payload = {
       paperId,
       answers: questions.map((q) => ({
         questionId: q.id,
         userAnswer: answers[q.id] ?? null,
         timeSpentSeconds: timeSpent[q.id] || 0,
+        imageUrl: ocrMeta[q.id]?.imageUrl || null,
+        ocrText: ocrMeta[q.id]?.ocrText || null,
       })),
     };
     try {
@@ -213,7 +220,7 @@ export default function ExamPage() {
                         }}
                       />
                       <span className="inline-block rounded-md border border-border px-4 py-2 text-sm hover:bg-secondary">
-                        上传图片（拍照/相册）
+                        {ocrLoading[q.id] ? "识别中…" : "上传图片（拍照/相册）"}
                       </span>
                     </label>
                   )}

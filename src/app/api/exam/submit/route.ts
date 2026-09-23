@@ -10,6 +10,8 @@ interface AnswerInput {
   questionId: string;
   userAnswer: string | null;
   timeSpentSeconds: number;
+  imageUrl?: string | null;
+  ocrText?: string | null;
 }
 
 function normalize(v: string): string {
@@ -83,6 +85,7 @@ export async function POST(req: Request) {
     const pointOf = (qid: string) => rows.find((r) => r.questions?.id === qid)?.points ?? 1;
 
     const answerMap = new Map(answers.map((a) => [a.questionId, a]));
+    const metaMap = new Map(answers.map((a) => [a.questionId, { imageUrl: a.imageUrl, ocrText: a.ocrText }]));
 
     const results: Array<{
       question: Question;
@@ -93,6 +96,8 @@ export async function POST(req: Request) {
       aiComment: string | null;
       points: number;
       earned: number;
+      imageUrl: string | null;
+      ocrText: string | null;
     }> = [];
 
     let correctCount = 0;
@@ -129,7 +134,8 @@ export async function POST(req: Request) {
       if (isCorrect) correctCount++;
       totalScore += earned;
 
-      return { question: q, userAnswer, isCorrect, timeSpentSeconds: timeSpent, aiScorePercent: aiScore, aiComment, points, earned };
+      const meta = metaMap.get(q.id) || { imageUrl: null, ocrText: null };
+      return { question: q, userAnswer, isCorrect, timeSpentSeconds: timeSpent, aiScorePercent: aiScore, aiComment, points, earned, imageUrl: meta.imageUrl || null, ocrText: meta.ocrText || null };
     });
     const graded = await Promise.all(gradeJobs);
     results.push(...graded);
@@ -142,6 +148,8 @@ export async function POST(req: Request) {
         user_answer: r.userAnswer,
         is_correct: r.isCorrect,
         time_spent_seconds: r.timeSpentSeconds,
+        image_url: r.imageUrl || null,
+        ocr_text: r.ocrText || null,
       })
     );
     const insertResults = await Promise.all(recordInserts);
