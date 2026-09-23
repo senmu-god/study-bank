@@ -73,17 +73,10 @@ export default function ExamPage() {
         });
         const d = await r.json();
         if (d.imageUrl) {
-          setOcrMeta((prev) => ({ ...prev, [qid]: { imageUrl: d.imageUrl, ocrText: d.ocrText || "" } }));
-          // 把 OCR 文本合并进答案文本框，用户可再编辑
-          if (d.ocrText) {
-            setAnswers((prev) => ({
-              ...prev,
-              [qid]: prev[qid] ? prev[qid] + "\n" + d.ocrText : d.ocrText,
-            }));
-          }
+          setOcrMeta((prev) => ({ ...prev, [qid]: { imageUrl: d.imageUrl, ocrText: "" } }));
         }
       } catch {
-        // OCR 失败不阻断，图片仍保留
+        // 上传失败不阻断
       } finally {
         setOcrLoading((prev) => ({ ...prev, [qid]: false }));
       }
@@ -220,7 +213,7 @@ export default function ExamPage() {
                         }}
                       />
                       <span className="inline-block rounded-md border border-border px-4 py-2 text-sm hover:bg-secondary">
-                        {ocrLoading[q.id] ? "识别中…" : "上传图片（拍照/相册）"}
+                        {ocrLoading[q.id] ? "上传中…" : "上传图片（拍照/相册）"}
                       </span>
                     </label>
                   )}
