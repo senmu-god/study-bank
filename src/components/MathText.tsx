@@ -48,14 +48,30 @@ function normalizeMath(text: string): string {
   s = out.join("");
   // 4) AI 经常把 $ 写成 $$（多打一个），统一折叠成单个 $
   s = s.replace(/\$\$/g, "$");
-  // 5) 如果 $ 总数是奇数，说明有未闭合的公式，去掉最后一个 $（避免残留字面量）
+  // 5) 如果 $ 总数是奇数，说明有未闭合的公式。
+  //    不要删除 $（会吞掉货币符号如 $500），而是把多余的那个 $ 转义成 \$，
+  //    让它在 markdown 里显示为字面量 $。
   const dollarCount = (s.match(/\$/g) || []).length;
   if (dollarCount % 2 !== 0) {
-    const lastIdx = s.lastIndexOf("$");
-    if (lastIdx >= 0) {
-      s = s.slice(0, lastIdx) + s.slice(lastIdx + 1);
+    // 找到最后一个未配对的 $，转义它
+    let seen = 0;
+    let lastOdd = -1;
+    for (let j = 0; j < s.length; j++) {
+      if (s[j] === "$") {
+        seen++;
+        if (seen % 2 === 1) lastOdd = j;
+      }
+    }
+    if (lastOdd >= 0) {
+      s = s.slice(0, lastOdd) + "\\$" + s.slice(lastOdd + 1);
     }
   }
+  // 6) 清理残留的孤立 \( 和 \)（AI 少写一半时）
+  s = s.replace(/\\\(/g, "").replace(/\\\)/g, "");
+  // 7) align 环境在行内模式不支持，降级为 aligned
+  s = s.replace(/\\begin\{align\}/g, "\\begin{aligned}").replace(/\\end\{align\}/g, "\\end{aligned}");
+  // 8) 剥离 \newcommand / \require / \def 等定义命令
+  s = s.replace(/\\(?:newcommand|renewcommand|require|def)\{[^}]*\}[^\n]*/g, "");
   return s;
 }
 

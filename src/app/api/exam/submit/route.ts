@@ -99,7 +99,8 @@ export async function POST(req: Request) {
     let totalScore = 0;
     let fullScore = 0;
 
-    for (const q of questions) {
+    // 第一步：先批量判分（简答/设计题并发调 AI，避免串行超时）
+    const gradeJobs = questions.map(async (q) => {
       const input = answerMap.get(q.id);
       const userAnswer = input?.userAnswer ?? null;
       const timeSpent = input?.timeSpentSeconds ?? 0;
@@ -128,35 +129,47 @@ export async function POST(req: Request) {
       if (isCorrect) correctCount++;
       totalScore += earned;
 
-      results.push({ question: q, userAnswer, isCorrect, timeSpentSeconds: timeSpent, aiScorePercent: aiScore, aiComment, points, earned });
+      return { question: q, userAnswer, isCorrect, timeSpentSeconds: timeSpent, aiScorePercent: aiScore, aiComment, points, earned };
+    });
+    const graded = await Promise.all(gradeJobs);
+    results.push(...graded);
 
-      // 写入答题记录
-      const { error: insErr } = await sb.from("answer_records").insert({
+    // 第二步：批量写入答题记录
+    const recordInserts = results.map((r) =>
+      sb.from("answer_records").insert({
         paper_id: paperId,
-        question_id: q.id,
-        user_answer: userAnswer,
-        is_correct: isCorrect,
-        time_spent_seconds: timeSpent,
-      });
-      if (insErr) throw new Error(`写入答题记录失败: ${insErr.message}`);
+        question_id: r.question.id,
+        user_answer: r.userAnswer,
+        is_correct: r.isCorrect,
+        time_spent_seconds: r.timeSpentSeconds,
+      })
+    );
+    const insertResults = await Promise.all(recordInserts);
+    for (const ir of insertResults) {
+      if (ir.error) throw new Error(`写入答题记录失败: ${ir.error.message}`);
+    }
 
-      // 错题本：UPSERT 逻辑，避免重复插入
-      if (!isCorrect) {
-        const { data: existing } = await sb
-          .from("wrong_answers")
-          .select("id,wrong_count,ease_factor")
-          .eq("question_id", q.id)
-          .maybeSingle();
-        const newCount = existing ? Number(existing.wrong_count || 1) + 1 : 1;
+    // 第三步：错题本 UPSERT
+    const wrongResults = results.filter((r) => !r.isCorrect);
+    if (wrongResults.length > 0) {
+      const qids = wrongResults.map((r) => r.question.id);
+      const { data: existingRows } = await sb
+        .from("wrong_answers")
+        .select("question_id,wrong_count,ease_factor")
+        .in("question_id", qids);
+      const existingMap = new Map((existingRows || []).map((e) => [e.question_id, e]));
+      const upserts = wrongResults.map((r) => {
+        const ex = existingMap.get(r.question.id);
+        const newCount = ex ? Number(ex.wrong_count || 1) + 1 : 1;
         const sm2 = onWrong({
-          ease_factor: Number(existing?.ease_factor || 2.5),
+          ease_factor: Number(ex?.ease_factor || 2.5),
           interval_step: 0,
         });
-        const { error: waErr } = await sb
+        return sb
           .from("wrong_answers")
           .upsert(
             {
-              question_id: q.id,
+              question_id: r.question.id,
               wrong_count: newCount,
               last_wrong_at: new Date().toISOString(),
               mastered: false,
@@ -165,7 +178,10 @@ export async function POST(req: Request) {
             },
             { onConflict: "question_id" }
           );
-        if (waErr) throw new Error(`写入错题本失败: ${waErr.message}`);
+      });
+      const waResults = await Promise.all(upserts);
+      for (const wr of waResults) {
+        if (wr.error) throw new Error(`写入错题本失败: ${wr.error.message}`);
       }
     }
 
