@@ -275,10 +275,25 @@ function isStale(q: GeneratedQuestion): boolean {
   return STALE_PATTERN.test(`${q.question_text} ${q.explanation}`);
 }
 
-/** 自检：解析不得出现凑数/自我拉扯字样；选择题正确答案必须存在于选项标签中。 */
+/** 自检：检查题型结构、选项与答案对应，并拒绝解析中的自我矛盾。 */
 function passesConsistencyCheck(q: GeneratedQuestion, type: QuestionType): boolean {
-  // 只拦真正的自相矛盾，不再因为答案字母不在选项里就拒（降级接受）
   if (SELF_DOUBT_PATTERN.test(`${q.question_text} ${q.explanation}`)) return false;
+  if (!q.question_text.trim() || !q.correct_answer.trim() || !q.explanation.trim()) return false;
+  if (type === "single_choice" || type === "multiple_choice") {
+    const options = Array.isArray(q.options) ? q.options : [];
+    const labels = options.map((option) => String(option?.label || "").trim().toUpperCase());
+    if (options.length !== 4 || new Set(labels).size !== 4) return false;
+    if (!labels.every((label) => ["A", "B", "C", "D"].includes(label))) return false;
+    if (!options.every((option) => String(option?.text || "").trim())) return false;
+    const answers = [...new Set(q.correct_answer.split(""))];
+    if (answers.length !== q.correct_answer.length || !answers.every((label) => labels.includes(label))) return false;
+    if (type === "single_choice" && answers.length !== 1) return false;
+    if (type === "multiple_choice" && answers.length < 2) return false;
+  } else if (Array.isArray(q.options) && q.options.length > 0) {
+    return false;
+  }
+  if (type === "fill_blank" && !/_{3,}/.test(q.question_text)) return false;
+  if (type === "true_false" && !["对", "错"].includes(q.correct_answer)) return false;
   return true;
 }
 
@@ -374,5 +389,35 @@ export async function gradeShortAnswer(params: {
     return { score, comment: String(parsed.comment || "") };
   } catch {
     return { score: 0, comment: "AI 判分失败" };
+  }
+}
+
+/**
+ * 通用 JSON 调用。
+ * 诊断、教学等场景共用同一套客户端配置与 JSON 解析，
+ * 避免每个功能各写一份重试与容错逻辑。
+ */
+export async function chatJSON<T>(
+  system: string,
+  user: string,
+  opts: { temperature?: number; maxTokens?: number } = {}
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const client = getClient();
+    const completion = await client.chat.completions.create({
+      model: MODEL,
+      temperature: opts.temperature ?? 0.2,
+      max_tokens: opts.maxTokens ?? 1500,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const raw = completion.choices[0]?.message?.content || "{}";
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    return { ok: true, data: JSON.parse(cleaned) as T };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "AI 调用失败" };
   }
 }

@@ -34,6 +34,16 @@ export default function ResultsPage() {
     summary: { total: number; correct: number; accuracy: number; score: number; fullScore: number };
     results: ResultItem[];
     kpStats: { kpId: string; content: string; total: number; correct: number }[];
+    kpTest: {
+      kpId: string;
+      kpName: string;
+      kind: string;
+      score: number | null;
+      passed: boolean | null;
+      conclusion: string | null;
+      status: string;
+      locked: boolean;
+    } | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +88,35 @@ export default function ResultsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {data.kpTest && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{data.kpTest.kind === "retest" ? "复测结论" : "专项测试结论"}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{data.kpTest.kpName}</span>
+              <Badge variant={data.kpTest.passed ? "default" : "secondary"}>
+                {data.kpTest.score == null ? "待评估" : `本次 ${data.kpTest.score}%`}
+              </Badge>
+              <Badge variant="outline">
+                当前状态：{{ new: "未学习", learning: "学习中", not_mastered: "未掌握", pending: "待确认", mastered: "已掌握" }[data.kpTest.status] || data.kpTest.status}
+              </Badge>
+            </div>
+            <p className="text-muted-foreground">
+              {data.kpTest.conclusion || "测试记录已建立，尚未写入评估结果。"}
+            </p>
+            {data.kpTest.locked && (
+              <p className="text-xs text-amber-700">你手动锁定了此知识点状态，本次测试未覆盖该设置。</p>
+            )}
+            <p className="text-xs text-muted-foreground">单次高分不会直接确认掌握；状态需要结合后续证据复核。</p>
+            <Link className="inline-flex items-center text-primary hover:underline" href={`/?kp=${encodeURIComponent(data.kpTest.kpId)}`}>
+              返回知识点查看详情
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {data.kpStats.length > 0 && (
         <Card>

@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     const sb = getSupabaseAdmin();
     let query = sb
       .from("questions")
-      .select("*, knowledge_points(content, sections(name, chapters(name, subjects(name))))", { count: "exact" })
+      .select("*, knowledge_points!questions_knowledge_point_id_fkey(content, sections(name, chapters(name, subjects(name))))", { count: "exact" })
       .order("generated_at", { ascending: false })
       .range((page - 1) * pageSize, page * pageSize - 1);
 
@@ -25,8 +25,23 @@ export async function GET(req: Request) {
     const { data, count, error } = await query;
     if (error) throw error;
 
+    const questionIds = (data || []).map((item) => item.id);
+    const links = questionIds.length
+      ? await sb.from("question_concepts").select("question_id,kp_id").in("question_id", questionIds)
+      : { data: [], error: null };
+    const linkMap = new Map<string, string[]>();
+    if (!links.error) for (const link of links.data || []) {
+      const values = linkMap.get(link.question_id) || [];
+      values.push(link.kp_id);
+      linkMap.set(link.question_id, values);
+    }
+    const items = (data || []).map((item) => ({
+      ...item,
+      conceptIds: [...new Set([...(item.knowledge_point_id ? [item.knowledge_point_id] : []), ...(linkMap.get(item.id) || [])])],
+    }));
+
     return NextResponse.json({
-      items: data || [],
+      items,
       total: count || 0,
       page,
       pageSize,

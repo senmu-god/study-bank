@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { gradeShortAnswer } from "@/lib/deepseek";
 import { onWrong } from "@/lib/sm2";
+import { answerImagePath, answerImageRef } from "@/lib/answerImageStorage";
 import type { Question } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,7 @@ interface AnswerInput {
   questionId: string;
   userAnswer: string | null;
   timeSpentSeconds: number;
-  imageUrl?: string | null;
+  imagePath?: string | null;
   ocrText?: string | null;
 }
 
@@ -71,6 +72,17 @@ export async function POST(req: Request) {
     }
 
     const sb = getSupabaseAdmin();
+    const { data: paperRow, error: paperReadError } = await sb
+      .from("papers")
+      .select("id,title,paper_type")
+      .eq("id", paperId)
+      .maybeSingle();
+    if (paperReadError) return NextResponse.json({ error: `读取试卷失败：${paperReadError.message}` }, { status: 500 });
+    const isKpTest = paperRow?.paper_type === "kp_test";
+    const { data: kpTestRow, error: kpTestReadError } = isKpTest
+      ? await sb.from("kp_tests").select("id,kp_id,kind").eq("paper_id", paperId).maybeSingle()
+      : { data: null, error: null };
+    const testKpId: string | null = kpTestRow?.kp_id || null;
 
     // 取整卷题目（含答案与解析、每题分值）
     const { data: pq } = await sb
@@ -85,7 +97,7 @@ export async function POST(req: Request) {
     const pointOf = (qid: string) => rows.find((r) => r.questions?.id === qid)?.points ?? 1;
 
     const answerMap = new Map(answers.map((a) => [a.questionId, a]));
-    const metaMap = new Map(answers.map((a) => [a.questionId, { imageUrl: a.imageUrl, ocrText: a.ocrText }]));
+    const metaMap = new Map(answers.map((a) => [a.questionId, { imagePath: answerImagePath(a.imagePath), ocrText: a.ocrText }]));
 
     const results: Array<{
       question: Question;
@@ -96,7 +108,7 @@ export async function POST(req: Request) {
       aiComment: string | null;
       points: number;
       earned: number;
-      imageUrl: string | null;
+      imagePath: string | null;
       ocrText: string | null;
     }> = [];
 
@@ -134,21 +146,26 @@ export async function POST(req: Request) {
       if (isCorrect) correctCount++;
       totalScore += earned;
 
-      const meta = metaMap.get(q.id) || { imageUrl: null, ocrText: null };
-      return { question: q, userAnswer, isCorrect, timeSpentSeconds: timeSpent, aiScorePercent: aiScore, aiComment, points, earned, imageUrl: meta.imageUrl || null, ocrText: meta.ocrText || null };
+      const meta = metaMap.get(q.id) || { imagePath: null, ocrText: null };
+      return { question: q, userAnswer, isCorrect, timeSpentSeconds: timeSpent, aiScorePercent: aiScore, aiComment, points, earned, imagePath: meta.imagePath || null, ocrText: meta.ocrText || null };
     });
     const graded = await Promise.all(gradeJobs);
     results.push(...graded);
 
     // 第二步：批量写入答题记录
+    // 写入 kp_id（冗余字段），让按知识点聚合不必三表 join。
+    // 注意：answer_records 目前没有 ai_score_percent / ai_comment 两列
+    //（schema.sql 里写了但线上库未建），简答题的 AI 分数暂不落库，
+    // 只保留 is_correct 判定。补列脚本见 supabase/migrations/20261021123818_answer_ai_score.sql。
     const recordInserts = results.map((r) =>
       sb.from("answer_records").insert({
         paper_id: paperId,
         question_id: r.question.id,
+        kp_id: testKpId || r.question.knowledge_point_id || null,
         user_answer: r.userAnswer,
         is_correct: r.isCorrect,
         time_spent_seconds: r.timeSpentSeconds,
-        image_url: r.imageUrl || null,
+        image_url: r.imagePath ? answerImageRef(r.imagePath) : null,
         ocr_text: r.ocrText || null,
       })
     );
@@ -210,13 +227,149 @@ export async function POST(req: Request) {
       kpStatMap.set(kpId, stat);
     }
 
+    if (testKpId) {
+      const { data: testKp } = await sb
+        .from("knowledge_points")
+        .select("id,content")
+        .eq("id", testKpId)
+        .maybeSingle();
+      kpStatMap.clear();
+      kpStatMap.set(testKpId, {
+        kpId: testKpId,
+        content: testKp?.content || "",
+        total: results.length,
+        correct: correctCount,
+      });
+    }
+
     // 查试卷类型
-    const { data: paperRow } = await sb.from("papers").select("id,title,paper_type").eq("id", paperId).single();
     const isMock = paperRow?.paper_type === "mock";
 
     const total = questions.length;
     const accuracy = fullScore ? Math.round((totalScore / fullScore) * 100) : 0;
     const totalTime = results.reduce((s, r) => s + (r.timeSpentSeconds || 0), 0);
+
+    // 专项测试写回知识点闭环。只依据本次可见的作答与分数，不推断用户未提供的解题过程；
+    // 单次高分最多进入「待确认」，不会自动判为「已掌握」。
+    let kpTestResult: { kpId: string; status: string; conclusion: string; locked: boolean } | null = null;
+    let kpTestWarning: string | null = null;
+    if (isKpTest) {
+      const testRow = kpTestRow;
+      if (kpTestReadError || !testRow) {
+        kpTestWarning = kpTestReadError?.message || "找不到该专项测试的知识点关联记录";
+      } else {
+        const correctRate = results.length ? Math.round((correctCount / results.length) * 100) : accuracy;
+        const questionIds = results.map((result) => result.question.id);
+        const difficultyCounts = results.reduce((counts: Record<string, number>, result) => {
+          const difficulty = String((result.question as any).difficulty || "unknown");
+          counts[difficulty] = (counts[difficulty] || 0) + 1;
+          return counts;
+        }, {});
+        const hasChallengeQuestion = (difficultyCounts.medium || 0) + (difficultyCounts.hard || 0) > 0;
+        const independent = body?.independent === true;
+        const processAnswerCount = results.filter((result) =>
+          ["short_answer", "design"].includes(result.question.question_type) && String(result.userAnswer || "").trim().length >= 80
+        ).length;
+        const { data: previousTests, error: previousTestsError } = await sb.from("kp_tests")
+          .select("score,passed,detail,created_at")
+          .eq("kp_id", testRow.kp_id)
+          .neq("id", testRow.id)
+          .order("created_at", { ascending: false })
+          .limit(20);
+        if (previousTestsError) kpTestWarning = `测试已判分，但读取此前测试依据失败：${previousTestsError.message}`;
+        const currentQuestionSet = [...questionIds].sort().join("|");
+        const priorIndependentPass = (previousTests || []).some((previous: any) => {
+          const detail = previous.detail || {};
+          const previousIds = Array.isArray(detail.questionIds) ? [...detail.questionIds].sort().join("|") : "";
+          return Number(previous.score) >= 80 && previous.passed === true && detail.independent === true &&
+            detail.masteryReady === true && previousIds && previousIds !== currentQuestionSet;
+        });
+        const currentMasteryReady = correctRate >= 80 && independent && hasChallengeQuestion && questionIds.length >= 2;
+        const masteryConfirmed = currentMasteryReady && priorIndependentPass && !previousTestsError;
+        const conclusion = correctRate < 60
+          ? `本次专项测试正确率 ${correctRate}%，证据显示该知识点仍有明显漏洞。`
+          : correctRate < 80
+            ? `本次专项测试正确率 ${correctRate}%，建议针对错题复习后再确认。`
+            : masteryConfirmed
+              ? `本次正确率 ${correctRate}%。本次与此前不同题目测试均达到 80%，包含中等或更高难度题，并声明独立完成，掌握证据达到确认条件。`
+              : `本次专项测试正确率 ${correctRate}%，本次表现良好；仍需一次不同题目、独立完成且包含中等或更高难度题的测试确认掌握。`;
+        const detail = {
+          total: total,
+          correct: correctCount,
+          accuracy: correctRate,
+          score: totalScore,
+          fullScore,
+          timeSpent: totalTime,
+          wrongQuestionIds: results.filter((r) => !r.isCorrect).map((r) => r.question.id),
+          questionIds,
+          difficultyCounts,
+          processAnswerCount,
+          independent,
+          masteryReady: currentMasteryReady,
+        };
+        const { error: testUpdateError } = await sb
+          .from("kp_tests")
+          .update({ score: correctRate, passed: correctRate >= 80, conclusion, detail })
+          .eq("id", testRow.id);
+        if (testUpdateError) kpTestWarning = `测试已判分，但结果写入失败：${testUpdateError.message}`;
+
+        const { data: currentState, error: stateReadError } = await sb
+          .from("kp_state")
+          .select("status,locked_by_user")
+          .eq("kp_id", testRow.kp_id)
+          .maybeSingle();
+
+        if (stateReadError) {
+          kpTestWarning = [kpTestWarning, `掌握状态读取失败：${stateReadError.message}`].filter(Boolean).join("；");
+        } else {
+          const wasMastered = currentState?.status === "mastered";
+          let nextStatus: "not_mastered" | "pending" | "mastered";
+          if (testRow.kind === "retest" && wasMastered && correctRate >= 80) {
+            nextStatus = "mastered";
+          } else if (masteryConfirmed) {
+            nextStatus = "mastered";
+          } else if (correctRate < 60) {
+            nextStatus = testRow.kind === "retest" && wasMastered ? "pending" : "not_mastered";
+          } else {
+            nextStatus = "pending";
+          }
+
+          if (currentState?.locked_by_user) {
+            kpTestResult = { kpId: testRow.kp_id, status: currentState.status, conclusion, locked: true };
+          } else {
+            const { error: stateWriteError } = await sb.from("kp_state").upsert(
+              {
+                kp_id: testRow.kp_id,
+                status: nextStatus,
+                source: "test",
+                locked_by_user: false,
+                updated_at: new Date().toISOString(),
+                last_studied_at: new Date().toISOString(),
+              },
+              { onConflict: "kp_id" }
+            );
+            if (stateWriteError) {
+              kpTestWarning = [kpTestWarning, `测试已完成，但掌握状态更新失败：${stateWriteError.message}`].filter(Boolean).join("；");
+            }
+            kpTestResult = { kpId: testRow.kp_id, status: nextStatus, conclusion, locked: false };
+          }
+        }
+
+        const { error: testRecordError } = await sb.from("kp_records").insert({
+          kp_id: testRow.kp_id,
+          type: "test",
+          title: `${testRow.kind === "retest" ? "复测" : "专项测试"}：正确率 ${correctRate}%`,
+          detail: conclusion,
+          payload: { testId: testRow.id, paperId, kind: testRow.kind, ...detail, status: kpTestResult?.status ?? null },
+        });
+        if (testRecordError) kpTestWarning = [kpTestWarning, `测试结论已生成，但学习记录写入失败：${testRecordError.message}`].filter(Boolean).join("；");
+        if (!testUpdateError) {
+          const taskType = testRow.kind === "retest" ? "retest" : "test";
+          const { error: taskError } = await sb.from("kp_tasks").update({ status: "done" }).eq("kp_id", testRow.kp_id).eq("type", taskType).eq("status", "pending");
+          if (taskError && !/does not exist|schema cache/i.test(taskError.message)) kpTestWarning = [kpTestWarning, `测试已判分，但计划任务未能标记完成：${taskError.message}`].filter(Boolean).join("；");
+        }
+      }
+    }
 
     // 模考：生成分析记录
     let analysis = null;
@@ -242,6 +395,8 @@ export async function POST(req: Request) {
       summary: { total, correct: correctCount, accuracy, score: totalScore, fullScore, timeSpent: totalTime },
       results,
       kpStats: [...kpStatMap.values()],
+      kpTest: kpTestResult,
+      kpTestWarning,
       analysis,
     });
   } catch (err) {

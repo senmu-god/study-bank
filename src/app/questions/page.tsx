@@ -19,11 +19,14 @@ function DiffBadge({ difficulty }: { difficulty: Difficulty }) {
 }
 
 type QWithKp = Question & {
+  conceptIds?: string[];
   knowledge_points: {
     content: string;
     sections: { name: string; chapters: { name: string; subjects: { name: string } } } | null;
   } | null;
 };
+
+type KnowledgeOption = { id: string; name: string; path: string };
 
 export default function QuestionsPage() {
   const [items, setItems] = useState<QWithKp[]>([]);
@@ -39,6 +42,9 @@ export default function QuestionsPage() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearInput, setClearInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [knowledgeOptions, setKnowledgeOptions] = useState<KnowledgeOption[]>([]);
+  const [secondaryKpIds, setSecondaryKpIds] = useState<string[]>([]);
+  const [kpSearch, setKpSearch] = useState("");
 
   async function load(p = page) {
     setLoading(true);
@@ -50,7 +56,14 @@ export default function QuestionsPage() {
     setPage(p);
     setLoading(false);
   }
-  useEffect(() => { load(1); }, []);
+  useEffect(() => {
+    load(1);
+    fetch("/api/knowledge/tree", { cache: "no-store" }).then((r) => r.json()).then((d) => {
+      if (!Array.isArray(d.tree)) return;
+      const options = d.tree.flatMap((subject: any) => subject.chapters.flatMap((chapter: any) => chapter.sections.flatMap((section: any) => section.kps.map((kp: any) => ({ id: kp.id, name: kp.content, path: `${subject.name} / ${chapter.name} / ${section.name}` })))));
+      setKnowledgeOptions(options);
+    }).catch(() => undefined);
+  }, []);
 
   const allChecked = items.length > 0 && items.every((q) => selectedIds.has(q.id));
   function toggleAll() {
@@ -107,6 +120,8 @@ export default function QuestionsPage() {
     setDetail(q);
     setEditing(false);
     setEditForm({ ...q });
+    setSecondaryKpIds((q.conceptIds || (q.knowledge_point_id ? [q.knowledge_point_id] : [])).filter((id) => id !== q.knowledge_point_id));
+    setKpSearch("");
   }
 
   async function saveEdit() {
@@ -121,10 +136,13 @@ export default function QuestionsPage() {
         correct_answer: editForm.correct_answer,
         explanation: editForm.explanation,
         difficulty: editForm.difficulty,
+        primaryKpId: editForm.knowledge_point_id || null,
+        secondaryKpIds: secondaryKpIds.filter((kpId) => kpId !== editForm.knowledge_point_id),
       }),
     });
     const d = await r.json();
     if (d.error) { alert("保存失败：" + d.error); return; }
+    if (d.associationWarning) alert(d.associationWarning);
     setDetail(null);
     setEditing(false);
     load();
@@ -256,6 +274,18 @@ export default function QuestionsPage() {
                     <option value="medium">中等</option>
                     <option value="hard">较难</option>
                   </Select>
+                </div>
+                <div className="space-y-2 rounded-lg border p-2.5">
+                  <label className="text-xs font-medium text-muted-foreground">题目关联知识点</label>
+                  <Select value={editForm.knowledge_point_id || ""} onChange={(e) => setEditForm({ ...editForm, knowledge_point_id: e.target.value })}>
+                    <option value="">不设置主知识点</option>
+                    {knowledgeOptions.map((kp) => <option key={kp.id} value={kp.id}>{kp.path} / {kp.name}</option>)}
+                  </Select>
+                  <Input value={kpSearch} onChange={(e) => setKpSearch(e.target.value)} placeholder="搜索次要知识点" />
+                  <div className="max-h-32 space-y-1 overflow-y-auto">
+                    {knowledgeOptions.filter((kp) => kp.id !== editForm.knowledge_point_id && (!kpSearch || `${kp.path} ${kp.name}`.includes(kpSearch))).slice(0, 80).map((kp) => <label key={kp.id} className="flex items-center gap-2 text-[11px]"><input type="checkbox" checked={secondaryKpIds.includes(kp.id)} onChange={(event) => setSecondaryKpIds((current) => event.target.checked ? [...current, kp.id] : current.filter((id) => id !== kp.id))} /><span className="truncate">{kp.path} / {kp.name}</span></label>)}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">支持一题关联多个知识点；主关联和次要关联都会进入覆盖统计与专项测试。</p>
                 </div>
                 <div className="flex gap-2">
                   <Button onClick={saveEdit}><Save size={14} /> 保存</Button>

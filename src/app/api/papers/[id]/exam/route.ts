@@ -15,14 +15,14 @@ export async function GET(
     const sb = getSupabaseAdmin();
     const { data: paper } = await sb
       .from("papers")
-      .select("id,title,total_questions,created_at")
+      .select("id,title,total_questions,created_at,paper_type")
       .eq("id", params.id)
       .single();
     if (!paper) return NextResponse.json({ error: "试卷不存在" }, { status: 404 });
 
     const { data: pq } = await sb
       .from("paper_questions")
-      .select("question_id, questions(id,knowledge_point_id,question_type,question_text,options,difficulty_score)")
+      .select("question_id, questions(id,knowledge_point_id,question_type,question_text,options,difficulty,difficulty_score)")
       .eq("paper_id", params.id)
       .order("sort_order");
 

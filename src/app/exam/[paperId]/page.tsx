@@ -22,15 +22,16 @@ export default function ExamPage() {
   const router = useRouter();
   const paperId = params.paperId as string;
 
-  const [paper, setPaper] = useState<{ title: string } | null>(null);
+  const [paper, setPaper] = useState<{ title: string; paper_type?: string } | null>(null);
   const [questions, setQuestions] = useState<ExamQuestion[]>([]);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [images, setImages] = useState<Record<string, string>>({});
-  const [ocrMeta, setOcrMeta] = useState<Record<string, { imageUrl: string; ocrText: string }>>({});
+  const [ocrMeta, setOcrMeta] = useState<Record<string, { imagePath: string; ocrText: string }>>({});
   const [ocrLoading, setOcrLoading] = useState<Record<string, boolean>>({});
   const [timeSpent, setTimeSpent] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [independent, setIndependent] = useState(false);
   const enterTime = useRef(Date.now());
 
   useEffect(() => {
@@ -59,43 +60,63 @@ export default function ExamPage() {
     setAnswers((a) => ({ ...a, [qid]: val }));
   }
 
+  async function compressImage(file: File): Promise<string> {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("无法处理这张图片。");
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    let quality = 0.86;
+    let dataUrl = canvas.toDataURL("image/jpeg", quality);
+    while (dataUrl.length > 4 * 1024 * 1024 && quality > 0.5) {
+      quality -= 0.08;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+    }
+    if (dataUrl.length > 4 * 1024 * 1024) throw new Error("图片压缩后仍超过上传限制，请换一张较小的图片。");
+    return dataUrl;
+  }
+
   async function handleImageUpload(qid: string, file: File) {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result as string;
+    setOcrLoading((prev) => ({ ...prev, [qid]: true }));
+    try {
+      const base64 = await compressImage(file);
+      const response = await fetch("/api/exam/ocr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64 }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.imagePath) throw new Error(result.error || "图片上传失败。");
       setImages((prev) => ({ ...prev, [qid]: base64 }));
-      setOcrLoading((prev) => ({ ...prev, [qid]: true }));
-      try {
-        const r = await fetch("/api/exam/ocr", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64 }),
-        });
-        const d = await r.json();
-        if (d.imageUrl) {
-          setOcrMeta((prev) => ({ ...prev, [qid]: { imageUrl: d.imageUrl, ocrText: "" } }));
-        }
-      } catch {
-        // 上传失败不阻断
-      } finally {
-        setOcrLoading((prev) => ({ ...prev, [qid]: false }));
-      }
-    };
-    reader.readAsDataURL(file);
+      setOcrMeta((prev) => ({ ...prev, [qid]: { imagePath: result.imagePath, ocrText: "" } }));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "图片处理或上传失败。");
+    } finally {
+      setOcrLoading((prev) => ({ ...prev, [qid]: false }));
+    }
   }
 
   async function submit() {
     if (submitting) return;
+    if (Object.values(ocrLoading).some(Boolean)) {
+      alert("请等待答案图片上传完成后再提交试卷。");
+      return;
+    }
     setSubmitting(true);
     recordTime();
 
     const payload = {
       paperId,
+      independent: paper?.paper_type === "kp_test" && independent,
       answers: questions.map((q) => ({
         questionId: q.id,
         userAnswer: answers[q.id] ?? null,
         timeSpentSeconds: timeSpent[q.id] || 0,
-        imageUrl: ocrMeta[q.id]?.imageUrl || null,
+        imagePath: ocrMeta[q.id]?.imagePath || null,
         ocrText: ocrMeta[q.id]?.ocrText || null,
       })),
     };
@@ -127,6 +148,13 @@ export default function ExamPage() {
         <h1 className="text-xl font-bold">{paper?.title}</h1>
         <span className="text-sm text-muted-foreground">第 {index + 1} / {questions.length} 题</span>
       </div>
+
+      {paper?.paper_type === "kp_test" && (
+        <label className="glass flex cursor-pointer items-start gap-2 rounded-xl px-3.5 py-3 text-[12px] leading-relaxed">
+          <input type="checkbox" checked={independent} onChange={(event) => setIndependent(event.target.checked)} className="mt-0.5" />
+          <span>我在本次专项测试中独立完成，没有查看答案或接受他人提示。该声明会与测试成绩、题目难度和题目列表一起用于掌握确认。</span>
+        </label>
+      )}
 
       <Card>
         <CardContent className="space-y-4 p-6">

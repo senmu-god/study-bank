@@ -1,42 +1,52 @@
 import { NextResponse, NextRequest } from "next/server";
+import { AUTH_COOKIE, isStaticAsset, verifyToken } from "@/lib/authToken";
 
-export function middleware(req: NextRequest) {
+/**
+ * 访问控制。规则：
+ *   1. 静态资源放行（白名单扩展名，不再用「路径含点」判断）；
+ *   2. 登录页与 /api/login 放行；
+ *   3. 未配置 SITE_ACCESS_PASSWORD 时：
+ *        本地开发放行，生产环境一律拒绝（否则等于全站公开）；
+ *   4. cookie 只校验 HMAC 签名，不保存密码原文。
+ */
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // 放行静态资源和登录页本身
-  if (
-    pathname.startsWith("/_next/") ||
-    pathname.startsWith("/favicon.ico") ||
-    pathname.startsWith("/login") ||
-    pathname.includes(".") // 静态文件
-  ) {
-    return NextResponse.next();
-  }
+  if (isStaticAsset(pathname)) return NextResponse.next();
+  if (pathname === "/login" || pathname === "/api/login") return NextResponse.next();
 
-  // /api/login 必须放行（提交密码本身不需要 cookie）
-  if (pathname === "/api/login") {
-    return NextResponse.next();
-  }
-
-  const token = req.cookies.get("auth_token")?.value;
   const expected = process.env.SITE_ACCESS_PASSWORD;
 
-  // 未配置密码则不拦截（本地开发兜底）
-  if (!expected) return NextResponse.next();
+  if (!expected) {
+    const devAllowed =
+      process.env.NODE_ENV !== "production" || process.env.ALLOW_NO_PASSWORD === "1";
+    if (devAllowed) return NextResponse.next();
 
-  if (token === expected) return NextResponse.next();
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "server_misconfigured", message: "未配置 SITE_ACCESS_PASSWORD，已拒绝访问" },
+        { status: 503 }
+      );
+    }
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = "?reason=unconfigured";
+    return NextResponse.redirect(url);
+  }
 
-  // API 请求未授权：返回 401 JSON，不重定向
+  const token = req.cookies.get(AUTH_COOKIE)?.value;
+  if (await verifyToken(token, expected)) return NextResponse.next();
+
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  // 页面请求未授权：重定向到登录页
   const loginUrl = req.nextUrl.clone();
   loginUrl.pathname = "/login";
+  loginUrl.search = "";
   return NextResponse.redirect(loginUrl);
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|login).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

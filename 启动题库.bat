@@ -1,5 +1,5 @@
 @echo off
 chcp 65001 >nul
-cd /d "C:\Users\0105\Desktop\题库"
-echo Starting study-bank on http://localhost:3000 ...
-call npm run start
+rem Visible mode: a minimized server window stays open so you can read logs.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-bank.ps1" -Visible
+if errorlevel 1 pause

@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
     const { data: qRows, error: qErr } = await sb
       .from("questions")
-      .select("*, knowledge_points(id, content, sections(chapters(subjects(name))))");
+      .select("*, knowledge_points!questions_knowledge_point_id_fkey(id, content, sections(chapters(subjects(name))))");
     if (qErr) throw qErr;
     const allQ = (qRows || []) as unknown as QRow[];
     if (allQ.length === 0) {

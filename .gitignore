@@ -30,3 +30,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 *.log
+
+# 启动器日志
+/启动日志.txt
+/服务器输出.txt
+/服务器错误.txt
+.next-verify/
