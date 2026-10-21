@@ -23,6 +23,13 @@ yarn-error.log*
 .env
 .env*.local
 
+# local secrets and personal data backups
+/.local/
+/backups/
+/study-bank-backups/
+*.backup.json
+*.kgm-backup.json
+
 # vercel
 .vercel
 
